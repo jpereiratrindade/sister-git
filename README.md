@@ -1,8 +1,8 @@
 # SisTer Git — somente repositórios Git
 
-**Versão:** 0.2.0 · **Princípio:** Sempre pronto. Sempre incompleto.
+**Versão:** 0.3.0 · **Princípio:** Sempre pronto. Sempre incompleto.
 
-Um serviço mínimo de hospedagem de repositórios do ecossistema SisTer: **Git bare + SSH existente**. Não instala Gitea, GitLab, serviço web, banco de dados, OAuth ou daemon Git. Não substitui GitHub nem GitLab e não tem Pull Requests/Issues/UI. A etapa 2 acrescenta **redundância por Git nativo**, preservando a arquitetura mínima.
+Um serviço mínimo de hospedagem de repositórios do ecossistema SisTer: **Git bare + SSH existente**. Não instala Gitea, GitLab, serviço web, banco de dados, OAuth ou daemon Git. Não substitui GitHub nem GitLab e não tem Pull Requests/Issues/UI. A etapa 2 acrescenta **redundância por Git nativo**. A etapa 3 acrescenta **execução simétrica em dois nós**, com fallback por comando e sincronização fast-forward, preservando a arquitetura mínima.
 
 ## Instalar
 
@@ -54,6 +54,27 @@ Se o MORFO usa `main`, depois do primeiro push ajuste o HEAD do servidor com `si
 
 Os detalhes para instalação, geração de bundles, teste de recuperação e resolução de conflitos estão em **[docs/REDUNDANCIA-GIT.md](docs/REDUNDANCIA-GIT.md)**.
 
+## Dois nós operacionais (PATCH-003)
+
+**O SisTer-Git precisa ser instalado nos dois computadores.** Cada um pode operar
+repositórios Git bare em `/srv/git`. O novo `sister-git-ha` seleciona um bare
+acessível, clona a partir dele e sincroniza os dois lados quando online.
+Apenas disponibilidade é garantida pelo `select`, não a cópia mais recente;
+**não há failover automático de escrita nem resolução de split-brain**.
+
+No SB, após instalar nos **dois** nós e criar o bare local:
+
+```bash
+export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id_ed25519_labeco -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5"
+PEER=jpereiratrindade@10.163.80.129:/srv/git
+sister-git-ha status sister-git "$PEER"
+sister-git-ha sync sister-git "$PEER"
+sister-git-ha select sister-git "$PEER"
+```
+
+Ver **[docs/HA-DOIS-NOS.md](docs/HA-DOIS-NOS.md)** para a instalação em cada máquina,
+o sentido reverso de SSH, failover simulado e limites de consistência.
+
 ## Outros repositórios
 
 No servidor: `sister-git init NEXO`, `sister-git init SisTer`, `sister-git list`, `sister-git check MORFO`.
@@ -74,8 +95,9 @@ No servidor: `sister-git init NEXO`, `sister-git init SisTer`, `sister-git list`
 ```bash
 bash tests/test_sister_git.sh
 bash tests/test_redundancy.sh
+bash tests/test_ha.sh
 ```
 
 ## Reversão
 
-A instalação modifica apenas `/usr/local/bin/sister-git` e `/usr/local/bin/sister-git-redundancy` e cria/ajusta `/srv/git`. Para remover o comando: `sudo rm /usr/local/bin/sister-git`; mantenha `/srv/git` intacto, pois contém os dados Git. Não apagar repositórios para desinstalar o utilitário.
+A instalação modifica apenas `/usr/local/bin/sister-git`, `/usr/local/bin/sister-git-redundancy` e `/usr/local/bin/sister-git-ha` e cria/ajusta `/srv/git`. Para remover o comando: `sudo rm /usr/local/bin/sister-git`; mantenha `/srv/git` intacto, pois contém os dados Git. Não apagar repositórios para desinstalar o utilitário.

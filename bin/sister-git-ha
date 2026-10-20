@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# SisTer-Git HA experimental: dois nós Git independentes e replicação fast-forward.
+# Não usa push --force, não remove branches/tags dos repositórios de usuários.
+set -euo pipefail
+export LC_ALL=C
+
+ROOT="${SISTER_GIT_ROOT:-/srv/git}"
+
+help() {
+  cat <<'HELP'
+SisTer-Git HA — pares Git sem controlador central (experimento)
+Uso:
+  sister-git-ha status NOME PEER_ROOT
+  sister-git-ha select NOME PEER_ROOT
+  sister-git-ha clone NOME PEER_ROOT DESTINO
+  sister-git-ha sync NOME PEER_ROOT
+
+NOME: nome de um repositório sem sufixo .git (ex.: sister-git).
+PEER_ROOT: caminho absoluto (testes locais) ou usuario@host:/srv/git (SSH).
+Em cada nó, use o PEER_ROOT do OUTRO nó. O caminho local padrão é /srv/git.
+A variável GIT_SSH_COMMAND permite configurar chave/timeout SSH.
+status: informa disponibilidade; select/clone: usam o bare local se disponível,
+        caso contrário usam o outro nó. O fallback é por comando, não por daemon.
+sync: reconcilia branches apenas com fast-forward, preserva tags imutáveis,
+      recusa divergências e exclusões; exige que os dois nós estejam online.
+IMPORTANTE: disponibilidade NÃO equivale a histórico mais recente. Não há
+fencing/quorum, failover automático de escrita nem resolução de split-brain.
+HELP
+}
+fail() { printf '[ERRO] %s\n' "$*" >&2; exit 1; }
+info() { printf '[INFO] %s\n' "$*" >&2; }
+valid_name() {
+  [[ "$1" =~ ^[A-Za-z][A-Za-z0-9_.-]{0,63}$ ]] \
+    && [[ "$1" != *..* && "$1" != *.git ]]
+}
+valid_peer_root() {
+  [[ "$1" != *..* ]] || return 1
+  [[ "$1" =~ ^/[A-Za-z0-9_./-]+$ || "$1" =~ ^[A-Za-z_][A-Za-z0-9_.-]*@[A-Za-z0-9_.-]+:/[A-Za-z0-9_./-]+$ ]]
+}
+local_bare() {
+  [[ -d "$LOCAL_REPO" && ! -L "$LOCAL_REPO" ]] &&
+    [[ "$(git --git-dir="$LOCAL_REPO" rev-parse --is-bare-repository 2>/dev/null || :)" == true ]]
+}
+peer_bare() {
+  # ls-remote exit=0 mesmo para bare vazio; falha em inacessibilidade/ausência.
+  git ls-remote "$PEER_REPO" >/dev/null 2>&1
+}
+select_endpoint() {
+  if local_bare; then
+    printf '%s\n' "$LOCAL_REPO"
+  elif peer_bare; then
+    printf '%s\n' "$PEER_REPO"
+  else
+    fail "Nenhum dos nós está acessível para $NAME"
+  fi
+}
+
+# Staging exclusivo desta chamada: isolado por nome de processo para não
+# interferir em outra sincronização simultânea. O cleanup apaga só refs internas.
+fetch_peer_refs() {
+  local prefix="$1"
+  git --git-dir="$LOCAL_REPO" fetch --no-tags --no-prune "$PEER_REPO" \
+    "+refs/heads/*:$prefix/heads/*" \
+    "+refs/tags/*:$prefix/tags/*" >/dev/null
+}
+cleanup_refs() {
+  local prefix="$1" reference
+  while IFS= read -r reference; do
+    [[ -n "$reference" ]] && git --git-dir="$LOCAL_REPO" update-ref -d "$reference" || :
+  done < <(git --git-dir="$LOCAL_REPO" for-each-ref --format='%(refname)' "$prefix")
+}
+
+sync() (
+  local prefix="refs/sister-git-ha/staging-$$" reference realref oid localoid
+  local bad=0 oldzero='0000000000000000000000000000000000000000'
+  local -a updates=()
+  local -A remote_ids=()
+  local -A local_ids=()
+  local t1 t2
+
+  local_bare || fail "Bare local ausente: $LOCAL_REPO. Crie com sister-git init $NAME"
+  peer_bare || fail "Par inacessível ou repositório ausente: $PEER_REPO. Nenhuma mudança realizada."
+  trap 'cleanup_refs "$prefix"' EXIT
+  info "Buscando referências de $PEER_REPO em namespace temporário..."
+  fetch_peer_refs "$prefix"
+
+  # Sempre verificar a árvore de refs ANTES de atualizar branches reais.
+  while IFS=$'\t' read -r oid reference; do
+    [[ -n "$reference" ]] || continue
+    case "$reference" in
+      "$prefix/heads/"*) realref="refs/heads/${reference#*/heads/}" ;;
+      "$prefix/tags/"*) realref="refs/tags/${reference#*/tags/}" ;;
+      *) fail "Ref temporária inesperada: $reference" ;;
+    esac
+    remote_ids["$realref"]="$oid"
+  done < <(git --git-dir="$LOCAL_REPO" for-each-ref --format='%(objectname)%09%(refname)' "$prefix")
+  while IFS=$'\t' read -r oid reference; do
+    [[ -n "$reference" ]] || continue
+    local_ids["$reference"]="$oid"
+  done < <(git --git-dir="$LOCAL_REPO" for-each-ref --format='%(objectname)%09%(refname)' refs/heads refs/tags)
+
+  for realref in "${!remote_ids[@]}"; do
+    oid="${remote_ids[$realref]}"
+    localoid="${local_ids[$realref]:-}"
+    if [[ -z "$localoid" ]]; then
+      updates+=("$realref" "$oid" "$oldzero")
+    elif [[ "$oid" == "$localoid" ]]; then
+      :
+    elif [[ "$realref" == refs/tags/* ]]; then
+      printf '[CONFLITO] Tag diferente em ambos os nós: %s\n' "$realref" >&2
+      bad=1
+    elif git --git-dir="$LOCAL_REPO" merge-base --is-ancestor "$localoid" "$oid"; then
+      # O remoto avançou: podemos fazer fast-forward da branch local (CAS).
+      updates+=("$realref" "$oid" "$localoid")
+    elif git --git-dir="$LOCAL_REPO" merge-base --is-ancestor "$oid" "$localoid"; then
+      # O local avançou: o push fará fast-forward da branch remota.
+      :
+    else
+      printf '[CONFLITO] Histórico divergente: %s (local=%s remoto=%s)\n' "$realref" "$localoid" "$oid" >&2
+      bad=1
+    fi
+  done
+  (( bad == 0 )) || fail 'Sincronização interrompida antes de modificar refs reais.'
+
+  # Compare-and-swap; recusa atualização se alguma branch local mudou após a checagem.
+  if (( ${#updates[@]} )); then
+    local commands="" i
+    for ((i=0; i<${#updates[@]}; i+=3)); do
+      commands+="update ${updates[i]} ${updates[i+1]} ${updates[i+2]}"$'\n'
+    done
+    printf '%s' "$commands" | git --git-dir="$LOCAL_REPO" update-ref --stdin || fail 'Refs locais mudaram durante a operação; refaça o sync.'
+  fi
+  # Push atômico do conjunto completo, sem deletes nem force; proteção do bare remoto mantida.
+  if git --git-dir="$LOCAL_REPO" for-each-ref --format='%(refname)' refs/heads refs/tags | grep -q .; then
+    info 'Publicando branches/tags via push --atomic (somente fast-forward)...'
+    git --git-dir="$LOCAL_REPO" push --atomic "$PEER_REPO" \
+      'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
+  fi
+  # Conferência bidirecional do estado final. Ausência de refs também é divergência.
+  t1="$(mktemp)"; t2="$(mktemp)"
+  trap 'rm -f -- "$t1" "$t2"; cleanup_refs "$prefix"' EXIT
+  git --git-dir="$LOCAL_REPO" for-each-ref --format='%(objectname)%09%(refname)' refs/heads refs/tags | sort > "$t1"
+  git ls-remote --heads --tags "$PEER_REPO" | awk '$2 !~ /\^\{\}$/ {print}' | sort > "$t2"
+  if ! diff -u "$t1" "$t2" >&2; then
+    fail 'Os históricos ainda não conferem. Verifique alterações concorrentes e tente novamente.'
+  fi
+  printf '[OK] Pares sincronizados: branches/tags idênticas, sem force ou exclusões.\n'
+)
+
+[[ $# -ge 1 ]] || { help; exit 2; }
+COMMAND="$1"; shift
+case "$COMMAND" in
+  help|-h|--help) help; exit 0 ;;
+  status|select|clone|sync) ;;
+  *) fail "Comando inválido: $COMMAND" ;;
+esac
+if [[ "$COMMAND" == clone ]]; then [[ $# -eq 3 ]] || fail 'Uso: sister-git-ha clone NOME PEER_ROOT DESTINO'
+else [[ $# -eq 2 ]] || fail "Uso: sister-git-ha $COMMAND NOME PEER_ROOT"; fi
+NAME="$1"; PEER_ROOT="$2"
+valid_name "$NAME" || fail "Nome inválido: $NAME"
+valid_peer_root "$PEER_ROOT" || fail "PEER_ROOT inválido: $PEER_ROOT"
+LOCAL_REPO="$ROOT/$NAME.git"
+PEER_REPO="$PEER_ROOT/$NAME.git"
+case "$COMMAND" in
+  status)
+    if local_bare; then printf '[OK] local: %s\n' "$LOCAL_REPO"; else printf '[OFFLINE] local: %s\n' "$LOCAL_REPO"; fi
+    if peer_bare; then printf '[OK] par: %s\n' "$PEER_REPO"; else printf '[OFFLINE] par: %s\n' "$PEER_REPO"; fi
+    ;;
+  select) select_endpoint ;;
+  clone) endpoint="$(select_endpoint)"; git clone -- "$endpoint" "$3" ;;
+  sync) sync ;;
+esac
