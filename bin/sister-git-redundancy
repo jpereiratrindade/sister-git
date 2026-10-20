@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# SisTer Git — redundância usando exclusivamente Git (refs, SSH, bundle, fsck).
+# Não realiza force push, prune, merge automático ou exclusão de refs.
+set -euo pipefail
+export LC_ALL=C
+
+usage() {
+  cat <<'HELP'
+SisTer Git — redundância Git nativa
+Uso:
+  sister-git-redundancy sync REPOSITORIO REMOTO
+  sister-git-redundancy verify REPOSITORIO REMOTO
+  sister-git-redundancy bundle REPOSITORIO DIRETORIO_DESTINO
+
+  sync    fetch remoto sem prune; busca tags; push atômico de todas as
+          branches e tags locais, sem force; verifica hashes após o push
+  verify  confere se todas as branches e tags locais estão no remoto
+  bundle  gera um pacote Git completo e portátil (--all) com SHA-256,
+          validado em repositório bare temporário e sem pré-requisitos
+
+REPOSITORIO pode ser um repositório de trabalho ou bare.
+REMOTO precisa estar cadastrado via 'git remote add', por exemplo labeco.
+Nenhum dos comandos envia alterações não commitadas ou dados ignorados.
+HELP
+}
+fail() { printf '[ERRO] %s\n' "$*" >&2; exit 1; }
+info() { printf '[INFO] %s\n' "$*" >&2; }
+
+repo_dir() {
+  [[ -d "$1" && ! -L "$1" ]] || fail "Repositório não encontrado ou simbólico: $1"
+  local root
+  root="$(cd -- "$1" && pwd -P)"
+  git -C "$root" rev-parse --git-dir >/dev/null 2>&1 || fail "Não é repositório Git: $root"
+  printf '%s\n' "$root"
+}
+check_remote() {
+  local repo="$1" remote="$2"
+  [[ "$remote" =~ ^[A-Za-z][A-Za-z0-9._-]{0,63}$ ]] || fail "Nome de remoto inválido: $remote"
+  git -C "$repo" remote get-url "$remote" >/dev/null 2>&1 || fail "Remoto não cadastrado: $remote"
+}
+
+# Confere refs exatas; refs extras no destino são preservadas e identificadas.
+# 'ls-remote' inclui uma entrada ^{} para tags anotadas, que não representa ref.
+verify_refs() (
+  local repo="$1" remote="$2" local_refs remote_refs missing extras
+  local_refs="$(mktemp)"
+  remote_refs="$(mktemp)"
+  trap 'rm -f -- "$local_refs" "$remote_refs"' EXIT
+  git -C "$repo" for-each-ref --format='%(objectname)%09%(refname)' refs/heads refs/tags \
+    | LC_ALL=C sort > "$local_refs"
+  git -C "$repo" ls-remote --heads --tags "$remote" \
+    | awk '$2 !~ /\^\{\}$/ {print $0}' \
+    | LC_ALL=C sort > "$remote_refs"
+  missing="$(comm -23 "$local_refs" "$remote_refs")"
+  extras="$(comm -13 "$local_refs" "$remote_refs")"
+  if [[ -n "$missing" ]]; then
+    printf '[ERRO] Referências locais ausentes ou divergentes no remoto %s:\n%s\n' \
+      "$remote" "$missing" >&2
+    [[ -z "$extras" ]] || printf '[INFO] Referências somente no remoto ou com hash diferente:\n%s\n' "$extras" >&2
+    return 1
+  fi
+  [[ -z "$extras" ]] || printf '[INFO] Referências extras no remoto (preservadas):\n%s\n' "$extras" >&2
+  printf '[OK] Todas as branches e tags locais conferem com %s\n' "$remote"
+)
+
+sync_repo() {
+  local repo="$1" remote="$2" dirty
+  check_remote "$repo" "$remote"
+  if [[ "$(git -C "$repo" rev-parse --is-bare-repository)" == false ]]; then
+    dirty="$(git -C "$repo" status --porcelain --untracked-files=normal)"
+    [[ -z "$dirty" ]] || info 'Existem arquivos não commitados/não rastreados: Git NÃO os replica.'
+  fi
+  info "Recebendo branches remotas de $remote (sem prune e sem alterar branches locais)..."
+  git -C "$repo" -c fetch.prune=false -c "remote.$remote.prune=false" \
+    fetch --no-tags --no-prune "$remote"
+  info 'Recebendo tags sem sobrescrever tags divergentes...'
+  git -C "$repo" -c fetch.prune=false \
+    fetch --no-prune --no-tags "$remote" 'refs/tags/*:refs/tags/*'
+  info "Enviando todas as branches e tags locais a $remote, sem force e sem exclusão..."
+  git -C "$repo" push --atomic "$remote" \
+    'refs/heads/*:refs/heads/*' 'refs/tags/*:refs/tags/*'
+  verify_refs "$repo" "$remote"
+  printf '[OK] Sincronização Git concluída; conflitos não são resolvidos automaticamente.\n'
+}
+
+create_bundle() (
+  local repo="$1" dest="$2" label stamp revision output tmp verify_dir name
+  [[ -d "$dest" && ! -L "$dest" ]] || fail "Destino deve ser diretório real já existente: $dest"
+  dest="$(cd -- "$dest" && pwd -P)"
+  label="$(basename -- "$repo")"
+  label="${label%.git}"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  revision="$(git -C "$repo" rev-parse --short=12 HEAD 2>/dev/null || printf 'nohead')"
+  name="${label}-${stamp}-${revision}.bundle"
+  output="$dest/$name"
+  [[ ! -e "$output" && ! -L "$output" && ! -e "$output.sha256" ]] || fail "Backup já existe: $output"
+  tmp="$(mktemp "$dest/.${label}.XXXXXX")"
+  verify_dir="$(mktemp -d)"
+  cleanup_bundle() { rm -f -- "$tmp"; rm -rf -- "$verify_dir"; }
+  trap cleanup_bundle EXIT
+  info 'Criando git bundle --all (inclui branches, tags e refs remotas existentes)...'
+  git -C "$repo" bundle create "$tmp" --all
+  git init --bare -q "$verify_dir/empty.git"
+  # A validação em repositório vazio garante ausência de dependências incrementais.
+  git -C "$verify_dir/empty.git" bundle verify "$tmp" >/dev/null
+  # link sem sobrescrita: o bundle provisório está no mesmo filesystem do destino.
+  ln -- "$tmp" "$output" || fail "Não foi possível criar bundle sem sobrescrever: $output"
+  (cd -- "$dest" && sha256sum -- "$name" > "$name.sha256")
+  printf '[OK] Bundle Git independente: %s\n' "$output"
+  printf '[OK] SHA-256: %s.sha256\n' "$output"
+  printf '[INFO] Testar recuperação: git clone -- "%s" DESTINO\n' "$output"
+)
+
+[[ $# -ge 1 ]] || { usage; exit 2; }
+cmd="$1"; shift
+case "$cmd" in
+  -h|--help|help) usage ;;
+  sync)
+    [[ $# -eq 2 ]] || fail 'Uso: sister-git-redundancy sync REPOSITORIO REMOTO'
+    repo="$(repo_dir "$1")"; sync_repo "$repo" "$2" ;;
+  verify)
+    [[ $# -eq 2 ]] || fail 'Uso: sister-git-redundancy verify REPOSITORIO REMOTO'
+    repo="$(repo_dir "$1")"; check_remote "$repo" "$2"; verify_refs "$repo" "$2" ;;
+  bundle)
+    [[ $# -eq 2 ]] || fail 'Uso: sister-git-redundancy bundle REPOSITORIO DIRETORIO_DESTINO'
+    repo="$(repo_dir "$1")"; create_bundle "$repo" "$2" ;;
+  *) fail "Comando desconhecido: $cmd" ;;
+esac
