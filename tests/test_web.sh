@@ -20,7 +20,7 @@ git -C "$TMP/work" push -q "$TMP/repos/MORFO.git" main
 PORT=$((20000 + RANDOM % 20000))
 SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" "$HERE/build/sister-git-web" --port "$PORT" >"$TMP/server.log" 2>&1 & PID=$!
 for _ in {1..50}; do curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null && break; sleep .05; done
-curl -fsS "http://127.0.0.1:$PORT/" | grep -q 'SisTer Git'
+curl -fsS "http://127.0.0.1:$PORT/" > "$TMP/index.html" && grep -q 'SisTer Git' "$TMP/index.html"
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos" > "$TMP/repos.json"
 grep -q '"name":"MORFO"' "$TMP/repos.json"; grep -q '"name":"empty"' "$TMP/repos.json"
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/tree?ref=main" | grep -q '"name":"src"'
@@ -131,6 +131,12 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
 grep -q '"ok":true' "$TMP/pub_ed.json"
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'ed/v1.0-publicado'
 git --git-dir="$TMP/repos/artigo-teste.git" tag -l | grep -q 'ed/v1.0-publicado'
+
+# 6. Testar download de arquivo compactado (ZIP e TAR.GZ)
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=zip" > "$TMP/artigo.zip"
+file "$TMP/artigo.zip" | grep -qi 'zip'
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=tar.gz" > "$TMP/artigo.tar.gz"
+file "$TMP/artigo.tar.gz" | grep -qi 'gzip'
 
 if SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" "$HERE/build/sister-git-web" --bind 0.0.0.0 --port $((PORT+1)) >"$TMP/public.log" 2>&1; then echo '[ERRO] bind público aceito sem token' >&2; exit 1; fi
 git --git-dir="$TMP/repos/MORFO.git" fsck --full >/dev/null

@@ -1017,6 +1017,11 @@ async function renderReposDashboard() {
             <span>${r.tags} tags</span>
             <span>${fmt(r.size_bytes)}</span>
             <span>${timeAgo(r.last_commit?.date)}</span>
+            <div style="display:flex; gap:6px; align-items:center; margin-left:8px;">
+              <button type="button" class="btn-cancel" onclick="event.stopPropagation(); openCloneModal('${esc(r.name)}', '')" style="padding:4px 9px; font-size:0.75rem; background:#fff; cursor:pointer;" title="Ver comandos para clonar via SSH">📥 Clonar</button>
+              <a href="/api/v1/repos/${encodeURIComponent(r.name)}/archive?format=zip" class="btn-cancel" style="padding:4px 9px; font-size:0.75rem; background:#fff; text-decoration:none;" title="Baixar ZIP com o código">⬇ ZIP</a>
+              <a href="#/r/${encodeURIComponent(r.name)}/code" class="btn-primary" style="padding:4px 10px; font-size:0.75rem; text-decoration:none;">Abrir ➔</a>
+            </div>
           </div>
         </div>
       `).join('')}
@@ -1047,7 +1052,9 @@ async function renderRepoCode(route) {
         <div class="blob-viewer">
           <div class="blob-head">
             <span><strong>${esc(path)}</strong> (${blob.binary ? 'Arquivo binário' : fmt(blob.size_bytes)})</span>
-            <a href="#/r/${encodeURIComponent(repo)}/code?ref=${encodeURIComponent(ref || '')}" class="btn-cancel" style="padding:4px 8px; font-size:0.75rem;">Voltar à pasta</a>
+            <div style="display:flex; gap:8px;">
+              <a href="#/r/${encodeURIComponent(repo)}/code?ref=${encodeURIComponent(ref || '')}" class="btn-cancel" style="padding:4px 8px; font-size:0.75rem;">Voltar à pasta</a>
+            </div>
           </div>
           ${blob.binary ? `<div style="padding:40px; text-align:center; color:var(--muted);">Arquivo binário não editável diretamente</div>` : `
             <pre class="blob-code"><code>${esc(blob.content)}</code></pre>
@@ -1057,6 +1064,34 @@ async function renderRepoCode(route) {
     } else {
       // Directory tree
       const entries = treeData?.entries || [];
+
+      // Check for README in root directory
+      let readmeHtml = '';
+      if (!path && entries.length) {
+        const readmeEntry = entries.find(e => /^readme(\.md)?$/i.test(e.name));
+        if (readmeEntry) {
+          try {
+            const readmeBlob = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=${encodeURIComponent(ref || 'HEAD')}&path=${encodeURIComponent(readmeEntry.name)}`);
+            if (readmeBlob && !readmeBlob.binary) {
+              readmeHtml = `
+                <div class="readme-card" style="margin-top:24px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; box-shadow:var(--shadow-sm);">
+                  <div class="readme-card-head" style="padding:12px 20px; background:var(--surface-alt); border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; font-size:0.84rem; font-weight:700; color:var(--navy);">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-size:1.1rem;">📖</span>
+                      <span>${esc(readmeEntry.name)}</span>
+                    </div>
+                    <span style="font-size:0.75rem; color:var(--muted); font-weight:normal;">${fmt(readmeBlob.size_bytes)}</span>
+                  </div>
+                  <div class="readme-card-body markdown-body" style="padding:28px 32px; line-height:1.65; background:#fff;">
+                    ${renderMarkdown(readmeBlob.content)}
+                  </div>
+                </div>
+              `;
+            }
+          } catch (_) {}
+        }
+      }
+
       innerContent = `
         <table class="tree-table">
           <thead>
@@ -1069,10 +1104,16 @@ async function renderRepoCode(route) {
           <tbody>
             ${path ? `
               <tr>
-                <td colspan="3"><a href="#/r/${encodeURIComponent(repo)}/code?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path.split('/').slice(0,-1).join('/'))}">.. (diretório anterior)</a></td>
+                <td colspan="3"><a href="#/r/${encodeURIComponent(repo)}/code?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path.split('/').slice(0,-1).join('/'))}">📁 .. (diretório anterior)</a></td>
               </tr>
             ` : ''}
-            ${entries.map(e => `
+            ${entries.length === 0 ? `
+              <tr>
+                <td colspan="3" style="text-align:center; padding:32px; color:var(--muted);">
+                  Repositório vazio ou nenhum arquivo encontrado nesta pasta.
+                </td>
+              </tr>
+            ` : entries.map(e => `
               <tr>
                 <td>
                   <a href="#/r/${encodeURIComponent(repo)}/code?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent((path ? path + '/' : '') + e.name)}">
@@ -1085,6 +1126,7 @@ async function renderRepoCode(route) {
             `).join('')}
           </tbody>
         </table>
+        ${readmeHtml}
       `;
     }
   } else if (tab === 'commits') {
@@ -1134,23 +1176,60 @@ async function renderRepoCode(route) {
 
   app.innerHTML = `
     <header class="editorial-doc-header" style="padding:20px 24px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
         <div>
           <div style="display:flex; align-items:center; gap:10px;">
             <h1 style="font-size:1.4rem; color:var(--navy); margin:0;">${esc(repo)}</h1>
             ${visBadge(rInfo.visibility || 'public', repo, rInfo.owner || '')}
+            ${rInfo.type === 'editorial' ? '<span class="badge-edition-tag">Editorial</span>' : ''}
           </div>
-          <p style="margin:2px 0 0; color:var(--muted); font-size:0.8rem;">Repositório bare gerenciado pelo nó local SisTer Git</p>
+          <p style="margin:4px 0 0; color:var(--muted); font-size:0.8rem;">Repositório bare sob governança e custódia do nó LABECO</p>
         </div>
-        <a href="#/editorial/${encodeURIComponent(repo)}" class="btn-primary" style="font-size:0.8rem;">
-          Ir para Espaço Editorial ➔
-        </a>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <button type="button" class="btn-cancel" onclick="openCloneModal('${esc(repo)}', '${esc(ref || '')}')" style="display:flex; align-items:center; gap:6px; font-weight:600; font-size:0.82rem; padding:7px 14px; background:#fff; cursor:pointer;" title="Ver comandos para clonar via SSH">
+            <span>📥</span> Clonar
+          </button>
+          <a href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=zip" class="btn-cancel" style="display:flex; align-items:center; gap:6px; font-weight:600; font-size:0.82rem; padding:7px 14px; background:#fff; text-decoration:none;" title="Baixar arquivo ZIP com o código">
+            <span>⬇</span> Baixar ZIP
+          </a>
+          ${rInfo.type === 'editorial' ? `
+            <a href="#/editorial/${encodeURIComponent(repo)}" class="btn-primary" style="font-size:0.82rem; padding:7px 14px;">
+              Ir para Espaço Editorial ➔
+            </a>
+          ` : ''}
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px; padding-top:14px; border-top:1px solid var(--line); flex-wrap:wrap; gap:10px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:0.82rem; font-weight:600; color:var(--navy); margin:0;">
+            <span>🌿 Branch:</span>
+            <select onchange="window.location.hash='#/r/${encodeURIComponent(repo)}/${tab}?ref=' + encodeURIComponent(this.value)" style="padding:4px 8px; font-size:0.8rem; border-radius:var(--radius-sm); border:1px solid var(--line); background:#fff; font-weight:600;">
+              ${(refsData.branches || []).map(b => `<option value="${esc(b.name)}" ${b.name === (ref || 'master') || (!ref && b.name === (rInfo.default_branch || 'master')) ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}
+              ${(refsData.tags || []).length ? `<optgroup label="Tags">${(refsData.tags || []).map(t => `<option value="${esc(t.name)}" ${t.name === ref ? 'selected' : ''}>🏷️ ${esc(t.name)}</option>`).join('')}</optgroup>` : ''}
+            </select>
+          </label>
+          ${path ? `
+            <span style="font-size:0.82rem; color:var(--muted);">/</span>
+            <span style="font-size:0.82rem; font-family:var(--font-mono); color:var(--navy); font-weight:600;">${esc(path)}</span>
+          ` : ''}
+        </div>
+
+        <div style="display:flex; align-items:center; gap:14px; font-size:0.78rem; color:var(--muted);">
+          <a href="#/r/${encodeURIComponent(repo)}/commits?ref=${encodeURIComponent(ref || '')}" style="color:var(--muted); text-decoration:none; display:flex; align-items:center; gap:4px;">
+            <strong>⎇</strong> <span>${rInfo.branches || (refsData.branches || []).length} branches</span>
+          </a>
+          <span>🏷️ ${(refsData.tags || []).length} tags</span>
+          ${rInfo.last_commit ? `
+            <span title="${esc(rInfo.last_commit.subject)}">Último commit: <code style="font-size:0.75rem;">${esc(rInfo.last_commit.short_hash)}</code> (${timeAgo(rInfo.last_commit.date)})</span>
+          ` : ''}
+        </div>
       </div>
     </header>
 
     <nav class="doc-tabs-bar">
-      <a href="#/r/${encodeURIComponent(repo)}/code" class="doc-tab ${tab === 'code' ? 'active' : ''}">📄 Código</a>
-      <a href="#/r/${encodeURIComponent(repo)}/commits" class="doc-tab ${tab === 'commits' ? 'active' : ''}">⎇ Commits</a>
+      <a href="#/r/${encodeURIComponent(repo)}/code${ref ? `?ref=${encodeURIComponent(ref)}` : ''}" class="doc-tab ${tab === 'code' ? 'active' : ''}">📄 Código</a>
+      <a href="#/r/${encodeURIComponent(repo)}/commits${ref ? `?ref=${encodeURIComponent(ref)}` : ''}" class="doc-tab ${tab === 'commits' ? 'active' : ''}">⎇ Commits</a>
       <a href="#/r/${encodeURIComponent(repo)}/compare" class="doc-tab ${tab === 'compare' ? 'active' : ''}">⇄ Comparar Diffs</a>
     </nav>
 
@@ -1559,6 +1638,39 @@ window.handleClearToken = function() {
   showToast('Token removido.');
   updateAuthStatus();
   render();
+};
+
+window.openCloneModal = function(repo, ref) {
+  const host = window.location.hostname || '10.163.80.129';
+  const sshClone = `git clone jpereiratrindade@${host}:/srv/git/${repo}.git`;
+  const gitRemote = `git remote add labeco jpereiratrindade@${host}:/srv/git/${repo}.git\ngit push -u labeco master`;
+
+  const sshInput = document.querySelector('#cloneSshInput');
+  const remoteInput = document.querySelector('#cloneRemoteInput');
+  const zipLink = document.querySelector('#cloneDownloadZip');
+  const tarLink = document.querySelector('#cloneDownloadTar');
+  const title = document.querySelector('#modalCloneTitle');
+
+  if (title) title.textContent = `Clonar ou Baixar: ${repo}`;
+  if (sshInput) sshInput.value = sshClone;
+  if (remoteInput) remoteInput.value = gitRemote;
+  if (zipLink) zipLink.href = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=zip`;
+  if (tarLink) tarLink.href = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=tar.gz`;
+
+  openModal('modalClone');
+};
+
+window.copyCloneCommand = async function(inputId) {
+  const input = document.querySelector('#' + inputId);
+  if (!input) return;
+  input.select();
+  try {
+    await navigator.clipboard.writeText(input.value);
+    showToast('✓ Comando copiado para a área de transferência!');
+  } catch (_) {
+    document.execCommand('copy');
+    showToast('✓ Comando copiado!');
+  }
 };
 
 window.handleSearch = function(q) {

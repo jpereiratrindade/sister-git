@@ -27,7 +27,12 @@
 namespace fs = std::filesystem;
 
 struct Result { int status; std::string out; };
-struct Response { int status = 200; std::string type = "application/json; charset=utf-8"; std::string body; };
+struct Response {
+  int status = 200;
+  std::string type = "application/json; charset=utf-8";
+  std::string body;
+  std::vector<std::string> extra_headers = {};
+};
 
 struct SmtpConfig {
   std::string host = "smtp.gmail.com";
@@ -66,7 +71,7 @@ static std::string json(const std::string &s) {
   return out + "\"";
 }
 
-static Result run(const std::vector<std::string> &args) {
+static Result run(const std::vector<std::string> &args, size_t max_out = max_output) {
   int p[2]; if (pipe(p) != 0) return {127, "pipe failed"};
   pid_t pid = fork();
   if (pid == 0) {
@@ -75,7 +80,7 @@ static Result run(const std::vector<std::string> &args) {
     execvp(av[0], av.data()); _exit(127);
   }
   close(p[1]); std::string out; char buf[8192]; ssize_t n;
-  while ((n = read(p[0], buf, sizeof(buf))) > 0) { if (out.size() + size_t(n) <= max_output) out.append(buf, size_t(n)); }
+  while ((n = read(p[0], buf, sizeof(buf))) > 0) { if (out.size() + size_t(n) <= max_out) out.append(buf, size_t(n)); }
   close(p[0]); int st = 0; waitpid(pid, &st, 0);
   return {WIFEXITED(st) ? WEXITSTATUS(st) : 128, out};
 }
@@ -730,6 +735,27 @@ static Response editorial(const std::string &name) {
   return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_raw + ",\"tags\":" + tags_json + "}"};
 }
 
+static Response archive(const std::string &name, const std::map<std::string, std::string> &q) {
+  std::string ref = q.count("ref") ? q.at("ref") : "HEAD";
+  std::string fmt = q.count("format") ? q.at("format") : "zip";
+  if (!valid_revision(ref)) ref = "HEAD";
+  if (fmt != "zip" && fmt != "tar.gz") fmt = "zip";
+
+  std::string clean_ref = ref;
+  if (clean_ref == "HEAD") clean_ref = "master";
+  std::replace(clean_ref.begin(), clean_ref.end(), '/', '-');
+
+  std::string prefix = name + "-" + clean_ref + "/";
+  auto r = run({"git", "--git-dir=" + git_dir(name), "archive", "--format=" + fmt, "--prefix=" + prefix, ref}, 128 * 1024 * 1024);
+  if (r.status != 0) {
+    return error(500, "Falha ao gerar arquivo para download: " + r.out);
+  }
+
+  std::string content_type = (fmt == "zip") ? "application/zip" : "application/gzip";
+  std::string filename = name + "-" + clean_ref + (fmt == "zip" ? ".zip" : ".tar.gz");
+  return {200, content_type, r.out, {"Content-Disposition: attachment; filename=\"" + filename + "\""}};
+}
+
 static Response static_file(std::string path) {
   if (path == "/") path = "/index.html";
   if (path.find("..") != std::string::npos) return error(400, "Caminho inválido");
@@ -815,6 +841,7 @@ static Response route(const std::string &target, const AuthUser &user) {
     if (action == "blob") return blob(name, q);
     if (action == "compare") return compare(name, q);
     if (action == "editorial") return editorial(name);
+    if (action == "archive") return archive(name, q);
     return error(404, "Rota não encontrada");
   }
 
@@ -1212,10 +1239,13 @@ static void client(int fd) {
 
   std::string h = "HTTP/1.1 " + std::to_string(r.status) + " " + reason(r.status) + "\r\n"
                   "Content-Type: " + r.type + "\r\n"
-                  "Content-Length: " + std::to_string(r.body.size()) + "\r\n"
-                  "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
-                  "Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n"
-                  "Connection: close\r\n\r\n";
+                  "Content-Length: " + std::to_string(r.body.size()) + "\r\n";
+  for (const auto &eh : r.extra_headers) {
+    h += eh + "\r\n";
+  }
+  h += "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
+       "Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n"
+       "Connection: close\r\n\r\n";
   write(fd, h.data(), h.size());
   write(fd, r.body.data(), r.body.size());
   close(fd);

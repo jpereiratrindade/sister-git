@@ -505,6 +505,52 @@
     </section>
   </div>
 
+  <!-- MODAL: CLONAR REPOSITÓRIO -->
+  <div id="modalClone" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalCloneTitle">
+    <section class="modal sm-card" style="width: min(640px, 100%);">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">ACESSO GIT REMOTO &amp; DOWNLOAD</span>
+          <h2 id="modalCloneTitle">Clonar ou Baixar Repositório</h2>
+        </div>
+        <button class="close-btn" onclick="closeModal('modalClone')" type="button" aria-label="Fechar">×</button>
+      </div>
+      <div class="modal-body-pad">
+        <p class="auth-intro">
+          Utilize os comandos abaixo no terminal do seu computador para clonar ou enviar alterações para este repositório no nó LABECO.
+        </p>
+
+        <label class="field-label">
+          <span>Clonar via SSH (Recomendado)</span>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="cloneSshInput" readonly style="font-family: var(--font-mono); font-size: 0.82rem; background: var(--surface-alt);">
+            <button type="button" class="btn-primary" onclick="copyCloneCommand('cloneSshInput')" style="white-space: nowrap;">📋 Copiar</button>
+          </div>
+        </label>
+
+        <label class="field-label" style="margin-top: 14px;">
+          <span>Vincular projeto local existente (Adicionar Remote)</span>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="cloneRemoteInput" readonly style="font-family: var(--font-mono); font-size: 0.82rem; background: var(--surface-alt);">
+            <button type="button" class="btn-primary" onclick="copyCloneCommand('cloneRemoteInput')" style="white-space: nowrap;">📋 Copiar</button>
+          </div>
+        </label>
+
+        <div style="margin-top: 18px; padding: 14px; background: var(--surface-alt); border: 1px solid var(--line); border-radius: var(--radius-md);">
+          <strong style="font-size: 0.84rem; color: var(--navy); display: block; margin-bottom: 4px;">Download Direto dos Arquivos</strong>
+          <p style="font-size: 0.78rem; margin: 0 0 10px; color: var(--muted);">Baixe uma cópia compactada do código ou documento sem precisar configurar o Git:</p>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a id="cloneDownloadZip" href="#" class="btn-primary" style="font-size: 0.8rem; text-decoration: none; padding: 6px 14px;">⬇ Baixar ZIP (.zip)</a>
+            <a id="cloneDownloadTar" href="#" class="btn-cancel" style="font-size: 0.8rem; text-decoration: none; padding: 6px 14px; background: #fff;">⬇ Baixar Tarball (.tar.gz)</a>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot-actions">
+        <button type="button" class="btn-cancel" onclick="closeModal('modalClone')">Fechar</button>
+      </div>
+    </section>
+  </div>
+
   <!-- TOAST NOTIFICAÇÃO -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

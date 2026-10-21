@@ -1278,6 +1278,60 @@ main#app {
   background: #fff;
 }
 
+.readme-card {
+  margin-top: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.readme-card-head {
+  padding: 12px 20px;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--navy);
+}
+.readme-card-body {
+  padding: 28px 36px;
+  line-height: 1.65;
+  background: #fff;
+  color: var(--text);
+}
+.readme-card-body h1, .readme-card-body h2, .readme-card-body h3 {
+  color: var(--navy);
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+}
+.readme-card-body h1:first-child, .readme-card-body h2:first-child {
+  margin-top: 0;
+}
+.readme-card-body pre {
+  background: #f6f8fa;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.readme-card-body code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: #f0f3f6;
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+.readme-card-body pre code {
+  background: transparent;
+  padding: 0;
+}
+
 .diff-box {
   background: #fff;
   border: 1px solid var(--line);
