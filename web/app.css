@@ -185,9 +185,23 @@ a:hover {
 }
 
 .navico {
-  font-size: 1.05rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 20px;
-  text-align: center;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--sky);
+}
+.navico svg {
+  width: 100%;
+  height: 100%;
+}
+.nav-item:hover .navico {
+  color: #fff;
+}
+.nav-item.active .navico {
+  color: var(--sky);
 }
 
 .navtxt {

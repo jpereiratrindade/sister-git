@@ -296,8 +296,24 @@ async function renderEditorialDashboard() {
 
   app.innerHTML = `
     <header class="hero-editorial">
-      <div class="hero-kicker">GOVERNANÇA EDITORIAL CIENTÍFICA · C++26</div>
-      <h1 class="hero-title">SisTer Git Editorial</h1>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div>
+          <div class="hero-kicker">GOVERNANÇA EDITORIAL CIENTÍFICA · C++26</div>
+          <h1 class="hero-title">SisTer Git Editorial</h1>
+        </div>
+        <div style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:12px; padding:8px 10px; display:grid; place-items:center;">
+          <svg viewBox="0 0 44 44" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="color:var(--sky);">
+            <path d="M8 34c5-2.5 10-2.5 14 1 4-3.5 9-3.5 14-1v-17c-5-2.5-10-2.5-14 1-4-3.5-9-3.5-14-1z"/>
+            <path d="M22 35V16"/>
+            <path d="M14 23c-3-2-5-5-5-10"/>
+            <path d="M30 23c3-2 5-5 5-10"/>
+            <path d="M22 16c-1.5-3.5 0-7 4.5-10.5 0 4.5-2 8-4.5 10.5z" fill="currentColor"/>
+            <circle cx="9" cy="13" r="3" fill="#e5b94f"/>
+            <circle cx="35" cy="13" r="3" fill="#2ea8e8"/>
+            <circle cx="22" cy="35" r="2.4" fill="currentColor"/>
+          </svg>
+        </div>
+      </div>
       <p class="hero-desc">
         Ambiente integrado para elaboração de artigos, revisão por pares com proveniência W3C PROV e homologação de edições imutáveis diretamente sobre repositórios Git, sem necessidade de comandos de terminal.
       </p>
@@ -664,6 +680,29 @@ async function renderReposDashboard() {
   allReposCache = data.repositories || [];
 
   app.innerHTML = `
+    <header class="hero-editorial" style="background:linear-gradient(130deg, #071e38, #0e375d);">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div>
+          <div class="hero-kicker">INFRAESTRUTURA DISTRIBUÍDA &amp; REPOSITÓRIOS</div>
+          <h1 class="hero-title">SisTer Git · Repositórios</h1>
+          <p class="hero-desc" style="margin-bottom:0;">Custódia descentralizada de código-fonte, árvores Merkle e branches sob governança do nó LABECO.</p>
+        </div>
+        <div style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:12px; padding:8px 10px; display:grid; place-items:center;">
+          <svg viewBox="0 0 44 44" width="44" height="44" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:var(--sky);">
+            <path d="M12 7v30"/>
+            <path d="M32 14v23"/>
+            <path d="M12 14c0 6 20 2 20 9"/>
+            <path d="M12 23c0 6 20 2 20 9"/>
+            <path d="M12 7c0 5 20 1 20 7"/>
+            <circle cx="12" cy="7" r="3.2" fill="#2ea8e8"/>
+            <circle cx="12" cy="37" r="3.2" fill="#087f8c"/>
+            <circle cx="32" cy="14" r="3.2" fill="#2ea8e8"/>
+            <circle cx="32" cy="37" r="3.2" fill="#087f8c"/>
+          </svg>
+        </div>
+      </div>
+    </header>
+
     <div class="section-head-bar">
       <div>
         <h2 class="section-title">Repositórios Git</h2>
