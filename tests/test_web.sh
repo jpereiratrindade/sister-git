@@ -122,14 +122,14 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   -d '{"reviewer":"Prof. Carlos","recommendation":"accept_with_revisions","comments":"Artigo excelente, favor detalhar a seção 3."}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/review" > "$TMP/review_ed.json"
 grep -q '"ok":true' "$TMP/review_ed.json"
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'Prof. Carlos'
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | python3 -m json.tool | grep -q 'Prof. Carlos'
 
 # 5. Publicar edição documental (cria tag ed/v1.0-publicado)
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"tag_name":"ed/v1.0-publicado","notes":"Publicação da primeira edição com DOI e W3C PROV","publisher_name":"SisTer Editorial","publisher_email":"editorial@labeco.invalid"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish" > "$TMP/pub_ed.json"
 grep -q '"ok":true' "$TMP/pub_ed.json"
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'ed/v1.0-publicado'
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | python3 -m json.tool | grep -q 'ed/v1.0-publicado'
 git --git-dir="$TMP/repos/artigo-teste.git" tag -l | grep -q 'ed/v1.0-publicado'
 
 # 6. Testar download de arquivo compactado (ZIP e TAR.GZ)

@@ -729,6 +729,11 @@ static Response editorial(const std::string &name) {
     first_t = false;
     tags_json += "{\"name\":" + json(tag_name) + ",\"hash\":" + json(p[1]) + ",\"date\":" + json(p[2]) + ",\"subject\":" + json(p.size() > 3 ? p[3] : "") + "}";
   }
+  tags_json += "]";
+
+  while (!manifest_raw.empty() && (manifest_raw.back() == '\n' || manifest_raw.back() == '\r' || manifest_raw.back() == ' ')) manifest_raw.pop_back();
+  if (manifest_raw.empty()) manifest_raw = "{}";
+
   std::string is_ed = (repo_type(name) == "editorial" || has_manifest) ? "true" : "false";
   std::string vis = repo_visibility(name);
   std::string owner = repo_owner(name);
