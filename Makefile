@@ -7,7 +7,7 @@ all: build/sister-git-web
 
 build/sister-git-web: src/sister_git_web.cpp
 	mkdir -p build
-	$(CXX) $(CXXFLAGS) $< -o $@
+	$(CXX) $(CXXFLAGS) $< -o $@ -lsqlite3
 
 test: all
 	bash tests/test_web.sh

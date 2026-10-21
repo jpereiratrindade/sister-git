@@ -31,13 +31,13 @@ curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/commits?ref=main" | grep -q
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/refs" | grep -q 'v0.1.0'
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/compare?base=main~1&head=main" | grep -q 'segunda'
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
-[[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 400 ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 401 ]]
 
-# Teste de visibilidade: privado vs publico com token
+# Teste de visibilidade: privado vs publico com token e OTP
 git --git-dir="$TMP/repos/empty.git" config sister.visibility private
 git --git-dir="$TMP/repos/MORFO.git" config sister.visibility public
 PORT_AUTH=$((PORT + 2))
-SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" SISTER_GIT_WEB_TOKEN="test-token-123" "$HERE/build/sister-git-web" --port "$PORT_AUTH" >"$TMP/server_auth.log" 2>&1 & PID_AUTH=$!
+SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" SISTER_GIT_WEB_TOKEN="test-token-123" "$HERE/build/sister-git-web" --port "$PORT_AUTH" --dev-auth >"$TMP/server_auth.log" 2>&1 & PID_AUTH=$!
 trap 'status=$?; [[ -n "${PID:-}" ]] && kill "$PID" 2>/dev/null || :; [[ -n "${PID_AUTH:-}" ]] && kill "$PID_AUTH" 2>/dev/null || :; if ((status)); then cat "$TMP/server.log" "$TMP/server_auth.log" 2>/dev/null || :; fi; rm -rf -- "$TMP"; exit $status' EXIT
 for _ in {1..50}; do curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/health" >/dev/null && break; sleep .05; done
 
@@ -52,6 +52,19 @@ curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH
 grep -q '"name":"MORFO"' "$TMP/auth_repos.json"
 grep -q '"name":"empty"' "$TMP/auth_repos.json"
 grep -q '"visibility":"private"' "$TMP/auth_repos.json"
+
+# Teste Autenticação OTP Passwordless Institucional
+curl -fsS -X POST -H "Content-Type: application/json" \
+  -d '{"email":"pesquisador@embrapa.br"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/auth/request-code" | grep -q '"ok":true'
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Content-Type: application/json" -d '{"email":"pesquisador@embrapa.br","code":"000000"}' "http://127.0.0.1:$PORT_AUTH/api/v1/auth/verify-code")" == 401 ]]
+curl -fsS -X POST -H "Content-Type: application/json" \
+  -d '{"email":"pesquisador@embrapa.br","code":"123456"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/auth/verify-code" > "$TMP/otp_verify.json"
+grep -q '"ok":true' "$TMP/otp_verify.json"
+grep -q '"email":"pesquisador@embrapa.br"' "$TMP/otp_verify.json"
+OTP_TOKEN="$(grep -o '"token":"[^"]*"' "$TMP/otp_verify.json" | cut -d'"' -f4)"
+curl -fsS -H "Authorization: Bearer $OTP_TOKEN" "http://127.0.0.1:$PORT_AUTH/api/v1/auth/status" | grep -q '"authenticated":true'
 
 # Teste SisTer Git Editorial (manifesto e tags ed/)
 printf '{"project_type":"editorial","title":"Campos Nativos","current_stage":"in_review"}\n' > "$TMP/work/.sister-editorial.json"

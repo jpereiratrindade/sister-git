@@ -300,32 +300,108 @@
   </section>
 </div>
 
-<!-- MODAL: AUTENTICAÇÃO TOKEN -->
+<!-- MODAL: AUTENTICAÇÃO INSTITUCIONAL & TOKEN -->
 <div id="modalAuth" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalAuthTitle">
   <section class="modal sm-card">
     <div class="modal-head">
       <div>
-        <span class="section-kicker">CONTROLE DE ACESSO LABECO</span>
-        <h2 id="modalAuthTitle">Autenticação de Pesquisador</h2>
+        <span class="section-kicker">ACESSO INSTITUCIONAL EMBRAPA · LABECO</span>
+        <h2 id="modalAuthTitle">Autenticação SisTer Git</h2>
       </div>
       <button class="close-btn" onclick="closeModal('modalAuth')" type="button" aria-label="Fechar">×</button>
     </div>
-    <form id="formAuth" onsubmit="handleSaveToken(event)">
+
+    <!-- TABS DE NAVEGAÇÃO -->
+    <div class="auth-tabs-nav" id="authTabsNav">
+      <button type="button" class="auth-tab-btn active" id="tabBtnEmail" onclick="switchAuthTab('email')">E-mail Institucional</button>
+      <button type="button" class="auth-tab-btn" id="tabBtnToken" onclick="switchAuthTab('token')">Token de Laboratório</button>
+    </div>
+
+    <!-- PAINEL 1: CÓDIGO POR EMAIL (PASSWORDLESS OTP) -->
+    <div id="panelAuthEmail" class="auth-tab-panel">
+      <!-- ETAPA 1: DIGITAR EMAIL -->
+      <form id="formAuthStep1" onsubmit="handleRequestOtp(event)">
+        <div class="modal-body-pad">
+          <p class="auth-intro">
+            Acesso para pesquisadores e editores via código numérico temporário enviado ao seu e-mail institucional.
+          </p>
+          <label class="field-label">
+            <span>E-mail Institucional Embrapa</span>
+            <input type="email" id="authEmailInput" placeholder="nome.sobrenome@embrapa.br" required autocomplete="email">
+            <small>Você receberá um código de 6 dígitos válido por 10 minutos para autenticar.</small>
+          </label>
+          <div id="authEmailFeedback" class="form-feedback hidden"></div>
+        </div>
+        <div class="modal-foot-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modalAuth')">Cancelar</button>
+          <button type="submit" id="btnRequestOtp" class="btn-primary">Enviar Código por E-mail ✉</button>
+        </div>
+      </form>
+
+      <!-- ETAPA 2: DIGITAR CÓDIGO -->
+      <form id="formAuthStep2" class="hidden" onsubmit="handleVerifyOtp(event)">
+        <div class="modal-body-pad">
+          <div class="otp-banner">
+            <span>Código de 6 dígitos enviado para:</span>
+            <strong id="authTargetEmailDisplay">pesquisador@embrapa.br</strong>
+          </div>
+          <label class="field-label" style="text-align: center;">
+            <span>Código de Verificação</span>
+            <input type="text" id="authCodeInput" class="otp-code-input" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="000000" required autocomplete="one-time-code">
+            <small>Insira os 6 números recebidos em sua caixa de entrada.</small>
+          </label>
+          <div id="authCodeFeedback" class="form-feedback hidden"></div>
+          <div style="text-align: center; margin-top: 6px;">
+            <button type="button" class="btn-text-link" onclick="switchAuthStep(1)">← Alterar e-mail ou reenviar código</button>
+          </div>
+        </div>
+        <div class="modal-foot-actions">
+          <button type="button" class="btn-cancel" onclick="switchAuthStep(1)">Voltar</button>
+          <button type="submit" id="btnVerifyOtp" class="btn-primary">Confirmar e Entrar ✓</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- PAINEL 2: TOKEN MESTRE (BEARER) -->
+    <div id="panelAuthToken" class="auth-tab-panel hidden">
+      <form id="formAuthToken" onsubmit="handleSaveToken(event)">
+        <div class="modal-body-pad">
+          <p class="auth-intro">
+            Autenticação via chave estática (Bearer Token) configurada no servidor (para scripts de sincronização ou administração direta).
+          </p>
+          <label class="field-label">
+            <span>Token de Acesso (Bearer Token)</span>
+            <input type="password" id="authTokenInput" placeholder="Cole o token do LABECO aqui">
+          </label>
+          <div id="authModalFeedback" class="form-feedback hidden"></div>
+        </div>
+        <div class="modal-foot-actions">
+          <button type="button" class="btn-cancel" onclick="handleClearToken()">Remover Token</button>
+          <button type="submit" class="btn-primary">Salvar e Conectar ✓</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- PAINEL CONECTADO (quando o usuário já está logado) -->
+    <div id="panelAuthConnected" class="auth-tab-panel hidden">
       <div class="modal-body-pad">
-        <p class="auth-intro">
-          Para realizar operações de escrita (criar artigos, salvar novas versões, emitir pareceres e publicar), informe o token de acesso do laboratório.
+        <div class="user-profile-card">
+          <div class="user-avatar-lg" id="authConnectedAvatar">JP</div>
+          <div class="user-profile-info">
+            <h3 id="authConnectedName">Pesquisador</h3>
+            <p id="authConnectedEmail">pesquisador@embrapa.br</p>
+            <span class="badge badge-primary" id="authConnectedRole">Pesquisador</span>
+          </div>
+        </div>
+        <p class="auth-intro" style="margin-top: 8px;">
+          Sua identidade institucional está vinculada aos commits editoriais e à governança científica no SisTer Git.
         </p>
-        <label class="field-label">
-          <span>Token de Acesso (Bearer Token)</span>
-          <input type="password" id="authTokenInput" placeholder="Cole o token do LABECO aqui">
-        </label>
-        <div id="authModalFeedback" class="form-feedback hidden"></div>
       </div>
       <div class="modal-foot-actions">
-        <button type="button" class="btn-cancel" onclick="handleClearToken()">Remover Token</button>
-        <button type="submit" class="btn-primary">Salvar e Conectar ✓</button>
+        <button type="button" class="btn-cancel" onclick="closeModal('modalAuth')">Fechar</button>
+        <button type="button" class="btn-primary" style="background: #cf222e;" onclick="logout()">Encerrar Sessão (Sair)</button>
       </div>
-    </form>
+    </div>
   </section>
 </div>
 

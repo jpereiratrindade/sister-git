@@ -41,19 +41,36 @@ const api = async (path, options = {}) => {
 
 const apiPost = (path, data) => api(path, { method: 'POST', body: data });
 
+let currentUser = null;
+let currentOtpEmail = '';
+
 async function updateAuthStatus() {
   if (!sidebarAuth) return;
   try {
-    const s = await api('/api/v1/auth/status').catch(() => ({ authenticated: false, auth_required: false }));
-    if (s.authenticated) {
+    const s = await api('/api/v1/auth/status').catch(() => ({ authenticated: false, auth_required: false, user: null }));
+    if (s.authenticated && s.user) {
+      currentUser = s.user;
+      const name = s.user.name || s.user.email.split('@')[0];
+      const initials = (name || 'P')
+        .split(' ')
+        .map(w => w[0])
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('')
+        .toUpperCase();
+
       sidebarAuth.innerHTML = `
-        <div class="auth-badge-status" title="Sessão autenticada no LABECO">
-          <span class="dot-auth"></span>
-          <span>Pesquisador</span>
+        <div class="sidebar-user-chip" onclick="openAuthModal()" title="Conectado como ${esc(s.user.email)} (${s.user.role || 'pesquisador'})">
+          <div class="user-avatar-sm">${esc(initials)}</div>
+          <div class="sidebar-user-details">
+            <span class="sidebar-user-name">${esc(name)}</span>
+            <span class="sidebar-user-email">${esc(s.user.email)}</span>
+          </div>
+          <button type="button" class="btn-auth-action" onclick="event.stopPropagation(); logout()" title="Encerrar sessão autenticada">Sair</button>
         </div>
-        <button type="button" class="btn-auth-action" onclick="logout()" title="Encerrar sessão autenticada">Sair</button>
       `;
     } else {
+      currentUser = null;
       sidebarAuth.innerHTML = `
         <div class="auth-badge-status" title="Acesso público somente leitura">
           <span class="dot-anon"></span>
@@ -63,16 +80,20 @@ async function updateAuthStatus() {
       `;
     }
   } catch (_) {
+    currentUser = null;
     sidebarAuth.innerHTML = `
       <div class="auth-badge-status"><span class="dot-anon"></span><span>Público</span></div>
     `;
   }
 }
 
-window.logout = function() {
+window.logout = async function() {
   setToken('');
+  currentUser = null;
+  await apiPost('/api/v1/auth/logout', {}).catch(() => {});
+  closeModal('modalAuth');
   showToast('Sessão encerrada.');
-  updateAuthStatus();
+  await updateAuthStatus();
   render();
 };
 
@@ -1027,9 +1048,135 @@ window.handlePublishEdition = async function(e) {
   }
 };
 
+window.switchAuthTab = function(tab) {
+  const isEmail = tab === 'email';
+  document.querySelector('#tabBtnEmail')?.classList.toggle('active', isEmail);
+  document.querySelector('#tabBtnToken')?.classList.toggle('active', !isEmail);
+  document.querySelector('#panelAuthEmail')?.classList.toggle('hidden', !isEmail);
+  document.querySelector('#panelAuthToken')?.classList.toggle('hidden', isEmail);
+  document.querySelector('#panelAuthConnected')?.classList.add('hidden');
+};
+
+window.switchAuthStep = function(step) {
+  const isStep1 = step === 1;
+  document.querySelector('#formAuthStep1')?.classList.toggle('hidden', !isStep1);
+  document.querySelector('#formAuthStep2')?.classList.toggle('hidden', isStep1);
+  const fb1 = document.querySelector('#authEmailFeedback');
+  const fb2 = document.querySelector('#authCodeFeedback');
+  if (fb1) fb1.classList.add('hidden');
+  if (fb2) fb2.classList.add('hidden');
+  if (!isStep1) {
+    setTimeout(() => document.querySelector('#authCodeInput')?.focus(), 120);
+  } else {
+    setTimeout(() => document.querySelector('#authEmailInput')?.focus(), 120);
+  }
+};
+
 window.openAuthModal = function() {
-  document.querySelector('#authTokenInput').value = getToken();
+  if (currentUser) {
+    document.querySelector('#authTabsNav')?.classList.add('hidden');
+    document.querySelector('#panelAuthEmail')?.classList.add('hidden');
+    document.querySelector('#panelAuthToken')?.classList.add('hidden');
+    const pConn = document.querySelector('#panelAuthConnected');
+    if (pConn) {
+      pConn.classList.remove('hidden');
+      const name = currentUser.name || currentUser.email.split('@')[0];
+      const initials = (name || 'P')
+        .split(' ')
+        .map(w => w[0])
+        .filter(Boolean)
+        .slice(0, 2)
+        .join('')
+        .toUpperCase();
+      document.querySelector('#authConnectedAvatar').textContent = initials;
+      document.querySelector('#authConnectedName').textContent = name;
+      document.querySelector('#authConnectedEmail').textContent = currentUser.email;
+      document.querySelector('#authConnectedRole').textContent = currentUser.role === 'admin' ? 'Administrador' : 'Pesquisador Embrapa';
+    }
+  } else {
+    document.querySelector('#authTabsNav')?.classList.remove('hidden');
+    document.querySelector('#panelAuthConnected')?.classList.add('hidden');
+    switchAuthTab('email');
+    switchAuthStep(1);
+    const lastEmail = localStorage.getItem('sister_last_email') || '';
+    const emailInput = document.querySelector('#authEmailInput');
+    if (emailInput && !emailInput.value) emailInput.value = lastEmail;
+    const tokenInput = document.querySelector('#authTokenInput');
+    if (tokenInput) tokenInput.value = getToken();
+  }
   openModal('modalAuth');
+};
+
+window.handleRequestOtp = async function(e) {
+  e.preventDefault();
+  const emailInput = document.querySelector('#authEmailInput');
+  const email = emailInput?.value.trim().toLowerCase();
+  const fb = document.querySelector('#authEmailFeedback');
+  const btn = document.querySelector('#btnRequestOtp');
+  if (!email) return;
+
+  if (fb) fb.classList.add('hidden');
+  btn.disabled = true;
+  btn.textContent = 'Enviando código... ⏳';
+
+  try {
+    const res = await apiPost('/api/v1/auth/request-code', { email });
+    currentOtpEmail = email;
+    localStorage.setItem('sister_last_email', email);
+    document.querySelector('#authTargetEmailDisplay').textContent = email;
+    const codeInput = document.querySelector('#authCodeInput');
+    if (codeInput) codeInput.value = '';
+    switchAuthStep(2);
+    showToast('✉ Código de 6 dígitos enviado para seu e-mail!');
+    if (res.dev_code && codeInput) {
+      codeInput.value = res.dev_code;
+    }
+  } catch (err) {
+    if (fb) {
+      fb.textContent = err.message || 'Erro ao enviar código por e-mail.';
+      fb.classList.remove('hidden');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Enviar Código por E-mail ✉';
+  }
+};
+
+window.handleVerifyOtp = async function(e) {
+  e.preventDefault();
+  const codeInput = document.querySelector('#authCodeInput');
+  const code = codeInput?.value.trim();
+  const fb = document.querySelector('#authCodeFeedback');
+  const btn = document.querySelector('#btnVerifyOtp');
+  if (!code || !currentOtpEmail) return;
+
+  if (fb) fb.classList.add('hidden');
+  btn.disabled = true;
+  btn.textContent = 'Autenticando... ⏳';
+
+  try {
+    const res = await apiPost('/api/v1/auth/verify-code', { email: currentOtpEmail, code });
+    if (res.token) {
+      setToken(res.token);
+      closeModal('modalAuth');
+      showToast(`✓ Bem-vindo, ${res.user?.name || res.user?.email || 'Pesquisador'}!`);
+      await updateAuthStatus();
+      const route = parseRoute();
+      if (!(route.mode === 'editorial-doc' && route.tab === 'editor')) {
+        render();
+      }
+    } else {
+      throw Error('Token de sessão não recebido do servidor.');
+    }
+  } catch (err) {
+    if (fb) {
+      fb.textContent = err.message || 'Código incorreto ou expirado.';
+      fb.classList.remove('hidden');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Confirmar e Entrar ✓';
+  }
 };
 
 window.handleSaveToken = async function(e) {
@@ -1049,8 +1196,8 @@ window.handleSaveToken = async function(e) {
       return;
     }
     closeModal('modalAuth');
-    showToast('✓ Token autenticado com sucesso! Agora clique em Salvar Versão no Git.');
-    updateAuthStatus();
+    showToast('✓ Token autenticado com sucesso!');
+    await updateAuthStatus();
     const route = parseRoute();
     if (!(route.mode === 'editorial-doc' && route.tab === 'editor')) {
       render();
@@ -1066,6 +1213,7 @@ window.handleSaveToken = async function(e) {
 
 window.handleClearToken = function() {
   setToken('');
+  currentUser = null;
   closeModal('modalAuth');
   showToast('Token removido.');
   updateAuthStatus();
