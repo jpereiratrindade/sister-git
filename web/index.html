@@ -17,7 +17,7 @@
 <div class="shell">
   <!-- SIDEBAR IDENTIDADE VISUAL MORFO -->
   <aside class="sidebar" id="sidebar">
-    <a class="brand" href="#/editorial" aria-label="SisTer Git Editorial, início">
+    <a class="brand" href="#/" aria-label="SisTer Git, início">
       <svg viewBox="0 0 44 44" class="brand-logo" aria-hidden="true">
         <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 7v30"/>
@@ -44,7 +44,16 @@
 
     <div class="navlabel">ESPAÇOS DE TRABALHO</div>
     <nav aria-label="Espaços de Trabalho" id="sidebarNav">
-      <a href="#/editorial" class="nav-item active" id="nav-editorial">
+      <a href="#/" class="nav-item active" id="nav-home">
+        <span class="navico">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+        </span>
+        <span class="navtxt">Início</span>
+      </a>
+      <a href="#/editorial" class="nav-item" id="nav-editorial">
         <span class="navico">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M3 19c3-1.5 6-1.5 9 1 3-2.5 6-2.5 9-1V7c-3-1.5-6-1.5-9 1-3-2.5-6-2.5-9-1z"/>
@@ -396,11 +405,66 @@
         <p class="auth-intro" style="margin-top: 8px;">
           Sua identidade institucional está vinculada aos commits editoriais e à governança científica no SisTer Git.
         </p>
+        <div id="adminUserManagementBox" class="hidden" style="margin-top: 10px; padding: 12px; background: #eaf3fa; border-radius: 8px; border: 1px solid #c2dcf0;">
+          <strong style="font-size: 0.82rem; color: var(--navy); display: block; margin-bottom: 4px;">Painel de Administração</strong>
+          <p style="font-size: 0.78rem; margin: 0 0 8px; color: var(--muted);">Gerencie a lista de pesquisadores e revisores autorizados a acessar o sistema.</p>
+          <button type="button" class="btn-primary" style="font-size: 0.8rem; padding: 6px 12px;" onclick="openUsersModal()">👥 Gerenciar Pesquisadores Autorizados</button>
+        </div>
       </div>
       <div class="modal-foot-actions">
         <button type="button" class="btn-cancel" onclick="closeModal('modalAuth')">Fechar</button>
         <button type="button" class="btn-primary" style="background: #cf222e;" onclick="logout()">Encerrar Sessão (Sair)</button>
       </div>
+    </div>
+  </section>
+</div>
+
+<!-- MODAL: GESTÃO DE USUÁRIOS / PESQUISADORES AUTORIZADOS -->
+<div id="modalUsers" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalUsersTitle">
+  <section class="modal sm-card" style="width: min(720px, 100%);">
+    <div class="modal-head">
+      <div>
+        <span class="section-kicker">CONTROLE DE ACESSO · ADMINISTRAÇÃO</span>
+        <h2 id="modalUsersTitle">Pesquisadores &amp; Usuários Autorizados</h2>
+      </div>
+      <button class="close-btn" onclick="closeModal('modalUsers')" type="button" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal-body-pad">
+      <p class="auth-intro">
+        Apenas usuários previamente cadastrados nesta lista têm permissão para solicitar código de acesso e logar no SisTer Git.
+      </p>
+
+      <!-- Formulário de cadastro de novo usuário -->
+      <form id="formAddUser" onsubmit="handleAddAllowedUser(event)" style="display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; align-items: flex-end; background: var(--surface-alt); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--line);">
+        <label class="field-label" style="margin: 0;">
+          <span>E-mail Embrapa</span>
+          <input type="email" id="newUserEmail" placeholder="nome@embrapa.br" required style="padding: 6px 10px;">
+        </label>
+        <label class="field-label" style="margin: 0;">
+          <span>Nome Completo</span>
+          <input type="text" id="newUserName" placeholder="Dr. Nome Sobrenome" required style="padding: 6px 10px;">
+        </label>
+        <label class="field-label" style="margin: 0;">
+          <span>Papel</span>
+          <select id="newUserRole" style="padding: 6px 10px;">
+            <option value="researcher">Pesquisador</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </label>
+        <button type="submit" class="btn-primary" style="padding: 7px 14px; height: 35px;">+ Autorizar</button>
+      </form>
+      <div id="addUserFeedback" class="form-feedback hidden"></div>
+
+      <!-- Lista de usuários cadastrados -->
+      <div style="margin-top: 10px;">
+        <span style="font-size: 0.76rem; font-weight: 700; color: var(--navy); text-transform: uppercase; letter-spacing: 0.08em;">Pesquisadores Ativos</span>
+        <div id="allowedUsersList" style="margin-top: 8px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-md);">
+          <div style="padding: 20px; text-align: center; color: var(--muted);">Carregando usuários...</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot-actions">
+      <button type="button" class="btn-cancel" onclick="closeModal('modalUsers')">Fechar</button>
     </div>
   </section>
 </div>

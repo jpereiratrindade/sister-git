@@ -66,6 +66,21 @@ grep -q '"email":"pesquisador@embrapa.br"' "$TMP/otp_verify.json"
 OTP_TOKEN="$(grep -o '"token":"[^"]*"' "$TMP/otp_verify.json" | cut -d'"' -f4)"
 curl -fsS -H "Authorization: Bearer $OTP_TOKEN" "http://127.0.0.1:$PORT_AUTH/api/v1/auth/status" | grep -q '"authenticated":true'
 
+# Teste de Gestão de Usuários Autorizados (Admin Whitelist)
+curl -fsS -H "Authorization: Bearer $OTP_TOKEN" "http://127.0.0.1:$PORT_AUTH/api/v1/admin/users" | grep -q 'pesquisador@embrapa.br'
+curl -fsS -H "Authorization: Bearer $OTP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"email":"colega@embrapa.br","name":"Dra. Colega","role":"researcher"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/admin/users" | grep -q '"ok":true'
+# Usuário não cadastrado recebe 403 ao pedir OTP
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Content-Type: application/json" -d '{"email":"desconhecido@embrapa.br"}' "http://127.0.0.1:$PORT_AUTH/api/v1/auth/request-code")" == 403 ]]
+# Usuário cadastrado recebe 200
+curl -fsS -X POST -H "Content-Type: application/json" -d '{"email":"colega@embrapa.br"}' "http://127.0.0.1:$PORT_AUTH/api/v1/auth/request-code" | grep -q '"ok":true'
+
+# Teste de alternância de visibilidade via API
+curl -fsS -H "Authorization: Bearer $OTP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"visibility":"public"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/empty/visibility" | grep -q '"visibility":"public"'
+
 # Teste SisTer Git Editorial (manifesto e tags ed/)
 printf '{"project_type":"editorial","title":"Campos Nativos","current_stage":"in_review"}\n' > "$TMP/work/.sister-editorial.json"
 git -C "$TMP/work" add .sister-editorial.json

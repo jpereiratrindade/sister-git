@@ -283,6 +283,13 @@ static void init_auth_db() {
       created_at INTEGER,
       expires_at INTEGER
     );
+    CREATE TABLE IF NOT EXISTS allowed_users (
+      email TEXT PRIMARY KEY,
+      name TEXT,
+      role TEXT DEFAULT 'researcher',
+      created_by TEXT,
+      created_at TEXT
+    );
   )";
   char *err = nullptr;
   sqlite3_exec(g_db, ddl, nullptr, nullptr, &err);
@@ -290,6 +297,36 @@ static void init_auth_db() {
     std::cerr << "[AUTH DDL ERROR] " << err << "\n";
     sqlite3_free(err);
   }
+}
+
+static bool has_allowed_users() {
+  if (!g_db) return false;
+  sqlite3_stmt *stmt = nullptr;
+  int count = 0;
+  if (sqlite3_prepare_v2(g_db, "SELECT COUNT(*) FROM allowed_users", -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_step(stmt) == SQLITE_ROW) count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+  }
+  return count > 0;
+}
+
+static bool is_user_allowed(const std::string &email, std::string &out_name, std::string &out_role) {
+  if (!g_db) return true;
+  if (!has_allowed_users()) return true;
+  sqlite3_stmt *stmt = nullptr;
+  bool ok = false;
+  if (sqlite3_prepare_v2(g_db, "SELECT name, role FROM allowed_users WHERE email = ?", -1, &stmt, nullptr) == SQLITE_OK) {
+    sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      ok = true;
+      const char *n = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+      const char *r = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+      if (n) out_name = n;
+      if (r) out_role = r;
+    }
+    sqlite3_finalize(stmt);
+  }
+  return ok;
 }
 
 static std::string random_hex(size_t bytes = 16) {
@@ -687,9 +724,10 @@ static Response editorial(const std::string &name) {
     first_t = false;
     tags_json += "{\"name\":" + json(tag_name) + ",\"hash\":" + json(p[1]) + ",\"date\":" + json(p[2]) + ",\"subject\":" + json(p.size() > 3 ? p[3] : "") + "}";
   }
-  tags_json += "]";
   std::string is_ed = (repo_type(name) == "editorial" || has_manifest) ? "true" : "false";
-  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_raw + ",\"tags\":" + tags_json + "}"};
+  std::string vis = repo_visibility(name);
+  std::string owner = repo_owner(name);
+  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_raw + ",\"tags\":" + tags_json + "}"};
 }
 
 static Response static_file(std::string path) {
@@ -725,6 +763,33 @@ static Response route(const std::string &target, const AuthUser &user) {
       ? "{\"email\":" + json(user.email) + ",\"name\":" + json(user.name) + ",\"role\":" + json(user.role) + "}"
       : "null";
     return {200, "application/json; charset=utf-8", "{\"authenticated\":" + std::string(user.authenticated ? "true" : "false") + ",\"user\":" + usr + ",\"auth_required\":true,\"smtp_enabled\":" + std::string(g_smtp.enabled() ? "true" : "false") + "}"};
+  }
+
+  if (path == "/api/v1/admin/users") {
+    if (!user.authenticated || user.role != "admin") {
+      return error(403, "Acesso restrito ao administrador");
+    }
+    std::string list = "[";
+    if (g_db) {
+      sqlite3_stmt *stmt = nullptr;
+      const char *sql = "SELECT email, name, role, created_at, created_by FROM allowed_users ORDER BY name ASC";
+      if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        bool first = true;
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+          if (!first) list += ",";
+          first = false;
+          std::string em = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+          std::string nm = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+          std::string rl = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+          std::string ca = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+          std::string cb = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+          list += "{\"email\":" + json(em) + ",\"name\":" + json(nm) + ",\"role\":" + json(rl) + ",\"created_at\":" + json(ca) + ",\"created_by\":" + json(cb) + "}";
+        }
+        sqlite3_finalize(stmt);
+      }
+    }
+    list += "]";
+    return {200, "application/json; charset=utf-8", "{\"ok\":true,\"users\":" + list + "}"};
   }
 
   if (path == "/api/v1/ha") {
@@ -766,6 +831,11 @@ static Response route_post(const std::string &target, const std::string &, const
 
     if (email.empty() || email.find('@') == std::string::npos || email.find('.') == std::string::npos) {
       return error(400, "Endereço de e-mail institucional inválido");
+    }
+
+    std::string a_name, a_role;
+    if (has_allowed_users() && !is_user_allowed(email, a_name, a_role)) {
+      return error(403, "E-mail institucional não cadastrado no SisTer Git. Solicite a liberação de acesso ao administrador do laboratório.");
     }
 
     std::string code = random_digits(6);
@@ -836,10 +906,28 @@ static Response route_post(const std::string &target, const std::string &, const
     std::string role = (email.find("admin") != std::string::npos) ? "admin" : "researcher";
 
     if (g_db) {
+      if (!has_allowed_users()) {
+        sqlite3_stmt *astmt = nullptr;
+        if (sqlite3_prepare_v2(g_db, "INSERT OR IGNORE INTO allowed_users(email, name, role, created_by, created_at) VALUES(?, ?, 'admin', 'system', ?)", -1, &astmt, nullptr) == SQLITE_OK) {
+          sqlite3_bind_text(astmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
+          sqlite3_bind_text(astmt, 2, name.c_str(), -1, SQLITE_TRANSIENT);
+          sqlite3_bind_text(astmt, 3, iso_now().c_str(), -1, SQLITE_TRANSIENT);
+          sqlite3_step(astmt);
+          sqlite3_finalize(astmt);
+        }
+        role = "admin";
+      } else {
+        std::string a_name, a_role;
+        if (is_user_allowed(email, a_name, a_role)) {
+          if (!a_name.empty()) name = a_name;
+          if (!a_role.empty()) role = a_role;
+        }
+      }
+
       // Upsert user
       sqlite3_stmt *ustmt = nullptr;
       const char *usql = "INSERT INTO users(id, email, name, role, created_at, last_login_at) VALUES(?, ?, ?, ?, ?, ?) "
-                         "ON CONFLICT(email) DO UPDATE SET last_login_at = excluded.last_login_at";
+                         "ON CONFLICT(email) DO UPDATE SET last_login_at = excluded.last_login_at, name = excluded.name, role = excluded.role";
       if (sqlite3_prepare_v2(g_db, usql, -1, &ustmt, nullptr) == SQLITE_OK) {
         std::string uid = random_hex(8);
         sqlite3_bind_text(ustmt, 1, uid.c_str(), -1, SQLITE_TRANSIENT);
@@ -877,6 +965,56 @@ static Response route_post(const std::string &target, const std::string &, const
     return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\"}"};
   }
 
+  // Admin Management Endpoints
+  if (target == "/api/v1/admin/users") {
+    if (!user.authenticated || user.role != "admin") {
+      return error(403, "Acesso restrito ao administrador");
+    }
+    std::string email = json_extract(body, "email");
+    std::string name = json_extract(body, "name");
+    std::string role = json_extract(body, "role");
+    if (role.empty()) role = "researcher";
+    std::transform(email.begin(), email.end(), email.begin(), [](unsigned char c) { return std::tolower(c); });
+    while (!email.empty() && (email.front() == ' ' || email.front() == '\t')) email.erase(email.begin());
+    while (!email.empty() && (email.back() == ' ' || email.back() == '\t')) email.pop_back();
+
+    if (email.empty() || email.find('@') == std::string::npos) return error(400, "E-mail inválido");
+    if (name.empty()) return error(400, "Nome é obrigatório");
+
+    if (g_db) {
+      sqlite3_stmt *stmt = nullptr;
+      const char *sql = "INSERT INTO allowed_users(email, name, role, created_by, created_at) VALUES(?, ?, ?, ?, ?) "
+                        "ON CONFLICT(email) DO UPDATE SET name = excluded.name, role = excluded.role";
+      if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, name.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, role.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, user.email.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, iso_now().c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+      }
+    }
+    return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\"}"};
+  }
+
+  if (target == "/api/v1/admin/users/delete") {
+    if (!user.authenticated || user.role != "admin") {
+      return error(403, "Acesso restrito ao administrador");
+    }
+    std::string email = json_extract(body, "email");
+    if (email == user.email) return error(400, "Não é permitido remover o próprio usuário administrador");
+    if (g_db) {
+      sqlite3_stmt *stmt = nullptr;
+      if (sqlite3_prepare_v2(g_db, "DELETE FROM allowed_users WHERE email = ?", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+      }
+    }
+    return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\"}"};
+  }
+
   // Protected Write Operations
   if (!user.authenticated) {
     return error(401, "Autenticação obrigatória para operações editoriais de escrita");
@@ -902,6 +1040,20 @@ static Response route_post(const std::string &target, const std::string &, const
     if (!is_repo_visible(name, user)) return error(403, "Acesso restrito ao proprietário do projeto");
 
     std::string action = slash == std::string::npos ? "" : rest.substr(slash + 1);
+
+    if (action == "visibility") {
+      std::string owner = repo_owner(name);
+      if (!owner.empty() && user.role != "admin" && owner != user.email) {
+        return error(403, "Apenas o proprietário do repositório ou o administrador podem alterar sua visibilidade");
+      }
+      std::string vis = json_extract(body, "visibility");
+      if (vis != "private" && vis != "public") return error(400, "Visibilidade deve ser 'public' ou 'private'");
+      run({"git", "--git-dir=" + git_dir(name), "config", "sister.visibility", vis});
+      if (owner.empty() && !user.email.empty()) {
+        run({"git", "--git-dir=" + git_dir(name), "config", "sister.owner", user.email});
+      }
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"name\":" + json(name) + ",\"visibility\":" + json(vis) + "}"};
+    }
 
     if (action == "editorial/save") {
       std::string filename = json_extract(body, "filename");

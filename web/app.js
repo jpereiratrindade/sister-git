@@ -204,7 +204,10 @@ window.toggleSidebar = function(force) {
 function updateNavHighlight(workspace) {
   currentWorkspace = workspace;
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  if (workspace === 'editorial') {
+  if (workspace === 'home') {
+    document.querySelector('#nav-home')?.classList.add('active');
+    crumbCurrent.textContent = 'Início';
+  } else if (workspace === 'editorial') {
     document.querySelector('#nav-editorial')?.classList.add('active');
     crumbCurrent.textContent = 'Espaço Editorial';
   } else if (workspace === 'repos') {
@@ -227,20 +230,26 @@ function parseRoute() {
   const q = new URLSearchParams(queryPart || '');
 
   // Cases:
+  // #/ or empty or #/home -> { mode: 'home' }
   // #/editorial -> { mode: 'editorial-dashboard' }
   // #/editorial/:repo -> { mode: 'editorial-doc', repo: ':repo', tab: 'manuscript' }
   // #/editorial/:repo/:tab -> { mode: 'editorial-doc', repo: ':repo', tab: ':tab' }
+  // #/repos -> { mode: 'repos-dashboard' }
   // #/infra -> { mode: 'infra' }
-  // #/ or empty -> { mode: 'repos-dashboard' }
   // #/r/:repo/:tab or #/:repo/:tab -> { mode: 'repo-code', repo, tab, ref, path, base, head }
 
-  // Se for explicitamente repositórios (#/repos ou #/)
-  if (segs[0] === 'repos' || location.hash === '#/' || location.hash === '#/repos') {
+  // Default: Home Page Profissional (#/ ou vazio ou #/home)
+  if (!segs.length || segs[0] === 'home' || location.hash === '#/' || location.hash === '#/home' || !location.hash) {
+    return { mode: 'home' };
+  }
+
+  // Se for explicitamente repositórios (#/repos)
+  if (segs[0] === 'repos') {
     return { mode: 'repos-dashboard' };
   }
 
-  // Raiz vazia sem hash ou #/editorial
-  if (!segs.length || (segs[0] === 'editorial' && segs.length === 1)) {
+  // Se for explicitamente editorial (#/editorial)
+  if (segs[0] === 'editorial' && segs.length === 1) {
     return { mode: 'editorial-dashboard' };
   }
 
@@ -275,7 +284,10 @@ async function render() {
   toggleSidebar(false);
 
   try {
-    if (route.mode === 'editorial-dashboard') {
+    if (route.mode === 'home') {
+      updateNavHighlight('home');
+      await renderHomePage();
+    } else if (route.mode === 'editorial-dashboard') {
       updateNavHighlight('editorial');
       await renderEditorialDashboard();
     } else if (route.mode === 'editorial-doc') {
@@ -300,6 +312,232 @@ async function render() {
       </div>
     `;
   }
+}
+
+// ============================================================================
+// VIEW 0: HOME PAGE (PÁGINA PRINCIPAL PROFISSIONAL)
+// ============================================================================
+
+async function renderHomePage() {
+  const data = await api('/api/v1/repos').catch(() => ({ repositories: [] }));
+  const ha = await api('/api/v1/ha').catch(() => ({ nodes: [] }));
+  allReposCache = data.repositories || [];
+
+  const editorials = allReposCache.filter(r => r.type === 'editorial');
+  const software = allReposCache.filter(r => r.type !== 'editorial');
+  const published = editorials.reduce((acc, r) => acc + (r.tags || 0), 0);
+  const activeNodes = (ha.nodes || []).filter(n => n.status === 'active').length || 2;
+
+  const recent = allReposCache.slice(0, 6);
+
+  app.innerHTML = `
+    <div class="home-container">
+      <!-- HERO PRINCIPAL -->
+      <header class="home-hero">
+        <div class="home-hero-header">
+          <div>
+            <div class="home-hero-kicker-row">
+              <span class="home-hero-kicker">ECOSSISTEMA SISTERN · LABECO EMBRAPA</span>
+              <span class="home-hero-badge">● Servidor Ativo (labeco-srv) · C++26 Nativo</span>
+            </div>
+            <h1 class="home-hero-title">SisTer Git</h1>
+            <p class="home-hero-subtitle">Governança Editorial, Gestão do Conhecimento &amp; Repositórios Científicos</p>
+          </div>
+          <div style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:16px; padding:12px; display:grid; place-items:center;">
+            <svg viewBox="0 0 44 44" width="56" height="56" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="color:var(--sky);">
+              <g stroke="currentColor" stroke-width="2.5">
+                <path d="M12 7v30"/>
+                <path d="M32 14v23"/>
+                <path d="M12 14c0 6 20 2 20 9"/>
+                <path d="M12 23c0 6 20 2 20 9"/>
+                <path d="M12 7c0 5 20 1 20 7"/>
+              </g>
+              <circle cx="12" cy="7" r="3.2" fill="#2ea8e8"/>
+              <circle cx="12" cy="14" r="2.8" fill="currentColor"/>
+              <circle cx="12" cy="23" r="2.8" fill="currentColor"/>
+              <circle cx="12" cy="37" r="3.2" fill="#087f8c"/>
+              <circle cx="32" cy="14" r="3.2" fill="#2ea8e8"/>
+              <circle cx="32" cy="23" r="2.8" fill="currentColor"/>
+              <circle cx="32" cy="32" r="2.8" fill="currentColor"/>
+              <circle cx="32" cy="37" r="3.2" fill="#087f8c"/>
+            </svg>
+          </div>
+        </div>
+
+        <p class="home-hero-desc">
+          Ambiente integrado de pesquisa que conecta a escrita científica com a rastreabilidade imutável do Git. Permite redigir manuscritos acadêmicos, registrar pareceres de revisão por pares e versionar código e dados ecológicos com alta disponibilidade e governança institucional.
+        </p>
+
+        <div class="home-hero-actions">
+          <a href="#/editorial" class="home-btn-primary">
+            <span>📖 Espaço Editorial</span>
+            <span style="font-size: 0.75rem; background: rgba(0,0,0,0.2); padding: 2px 7px; border-radius: 10px;">${editorials.length}</span>
+          </a>
+          <a href="#/repos" class="home-btn-secondary">
+            <span>💻 Repositórios Git</span>
+            <span style="font-size: 0.75rem; background: rgba(255,255,255,0.15); padding: 2px 7px; border-radius: 10px;">${software.length}</span>
+          </a>
+          <a href="#/infra" class="home-btn-secondary">
+            <span>⚡ Alta Disponibilidade</span>
+            <span style="font-size: 0.75rem; color:#55efc4;">Sincronizado</span>
+          </a>
+          <button type="button" class="home-btn-secondary" style="cursor:pointer;" onclick="openNewProjectModal()">
+            <span>+ Novo Projeto</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- MÉTRICAS DO SISTEMA -->
+      <section class="statgrid">
+        <div class="stat-card">
+          <span>Manuscritos &amp; Artigos</span>
+          <strong>${editorials.length}</strong>
+          <small>Documentos em governança editorial</small>
+        </div>
+        <div class="stat-card">
+          <span>Software &amp; Dados</span>
+          <strong>${software.length}</strong>
+          <small>Repositórios bare gerenciados</small>
+        </div>
+        <div class="stat-card">
+          <span>Edições Homologadas</span>
+          <strong>${published}</strong>
+          <small>Versões publicadas com tags Git</small>
+        </div>
+        <div class="stat-card">
+          <span>Tolerância a Falhas</span>
+          <strong>${activeNodes} Nós Ativos</strong>
+          <small>Replicação bidirecional contínua</small>
+        </div>
+      </section>
+
+      <!-- OS 3 PILARES DO SISTEMA -->
+      <section>
+        <div class="home-section-head">
+          <div>
+            <h2 class="home-section-title">Pilares do SisTer Git</h2>
+            <p class="home-section-desc">Uma plataforma unificada para governança do conhecimento, código e continuidade operacional.</p>
+          </div>
+        </div>
+
+        <div class="home-pillars-grid">
+          <!-- PILAR 1 -->
+          <div class="pillar-card pillar-editorial">
+            <div>
+              <div class="pillar-icon-box" style="color: #e5b94f;">
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 19c3-1.5 6-1.5 9 1 3-2.5 6-2.5 9-1V7c-3-1.5-6-1.5-9 1-3-2.5-6-2.5-9-1z"/>
+                  <path d="M12 20V9"/>
+                  <path d="M12 9c-.8-2 0-4 2.5-6 0 2.5-1.2 4.5-2.5 6z" fill="currentColor"/>
+                </svg>
+              </div>
+              <span class="pillar-badge badge-gold">Módulo Editorial C++26</span>
+              <h3 class="pillar-title">SisTer Editorial</h3>
+              <p class="pillar-desc">
+                Transforma o Git em infraestrutura de gestão documental científica. Redija manuscritos com formatação instantânea, emita pareceres formais e homologue edições imutáveis com proveniência W3C PROV.
+              </p>
+            </div>
+            <a href="#/editorial" class="pillar-link">Entrar no Espaço Editorial →</a>
+          </div>
+
+          <!-- PILAR 2 -->
+          <div class="pillar-card pillar-git">
+            <div>
+              <div class="pillar-icon-box" style="color: var(--blue);">
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="6" y1="3" x2="6" y2="21"/>
+                  <circle cx="6" cy="6" r="3"/>
+                  <circle cx="6" cy="18" r="3"/>
+                  <path d="M18 9a9 9 0 0 1-9 9"/>
+                  <circle cx="18" cy="9" r="3"/>
+                </svg>
+              </div>
+              <span class="pillar-badge badge-blue">Gestão Bare Git</span>
+              <h3 class="pillar-title">Repositórios de Código</h3>
+              <p class="pillar-desc">
+                Controle de versão puro e eficiente para scripts analíticos em R/Python, rotinas ecológicas e dados brutos. Navegue pela árvore de arquivos, compare diffs e audite commits em microssegundos.
+              </p>
+            </div>
+            <a href="#/repos" class="pillar-link">Explorar Repositórios Git →</a>
+          </div>
+
+          <!-- PILAR 3 -->
+          <div class="pillar-card pillar-ha">
+            <div>
+              <div class="pillar-icon-box" style="color: var(--green);">
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="7" rx="2"/>
+                  <rect x="2" y="14" width="20" height="7" rx="2"/>
+                  <line x1="6" y1="6" x2="6.01" y2="6"/>
+                  <line x1="6" y1="17" x2="6.01" y2="17"/>
+                </svg>
+              </div>
+              <span class="pillar-badge badge-green">Nós Gêmeos (HA)</span>
+              <h3 class="pillar-title">Resiliência Operacional</h3>
+              <p class="pillar-desc">
+                Arquitetura sem ponto único de falha. Sincronização contínua com verificação criptográfica entre o servidor central do laboratório (<code>labeco-srv</code>) e nós réplica de backup em tempo real.
+              </p>
+            </div>
+            <a href="#/infra" class="pillar-link">Ver Topologia de Alta Disponibilidade →</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROJETOS E ARTIGOS RECENTES -->
+      ${recent.length ? `
+        <section>
+          <div class="home-section-head">
+            <div>
+              <h2 class="home-section-title">Artigos e Repositórios Recentes</h2>
+              <p class="home-section-desc">Projetos ativos hospedados na infraestrutura do LABECO.</p>
+            </div>
+            <a href="#/repos" style="font-size: 0.84rem; font-weight: 700; color: var(--blue);">Ver todos (${allReposCache.length}) →</a>
+          </div>
+
+          <div class="grid-repo">
+            ${recent.map(r => {
+              const isEd = r.type === 'editorial';
+              const link = isEd ? `#/editorial/${encodeURIComponent(r.name)}/editor` : `#/r/${encodeURIComponent(r.name)}/code`;
+              const visLabel = r.visibility === 'private' ? '🔒 Privado' : '🌐 Público';
+              const visClass = r.visibility === 'private' ? 'badge-private' : 'badge-public';
+              return `
+                <article class="repo-card" data-search="${esc(r.name)} ${esc(r.visibility || '')}">
+                  <div class="repo-card-head">
+                    <span class="repo-name" title="${esc(r.name)}">
+                      <a href="${link}">${esc(r.name)}</a>
+                    </span>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                      <span class="badge ${visClass}">${visLabel}</span>
+                      <span class="badge ${isEd ? 'badge-editorial' : 'badge-primary'}">${isEd ? '📖 Editorial' : '💻 Código'}</span>
+                    </div>
+                  </div>
+                  <p class="repo-desc">${esc(r.description || (isEd ? 'Projeto editorial científico sob governança Git.' : 'Repositório de software sob controle de versão Git.'))}</p>
+                  <div class="repo-meta">
+                    <span>${r.branches || 1} ramo(s)</span>
+                    <span>${r.tags || 0} edição/tag(s)</span>
+                    <a href="${link}" style="margin-left: auto; font-weight: 700;">Abrir →</a>
+                  </div>
+                </article>
+              `;
+            }).join('')}
+          </div>
+        </section>
+      ` : ''}
+
+      <!-- MANIFESTO LABECO -->
+      <section class="home-manifesto-card">
+        <div>
+          <div class="home-manifesto-quote">“Sempre pronto. Sempre incompleto!”</div>
+          <p class="home-manifesto-text">
+            No Laboratório de Ecologia e Conservação (LABECO), consideramos que o conhecimento científico e o código não são arquivos isolados, mas o resultado contínuo de um processo rigoroso de elaboração, diálogo entre pares, revisão e homologação.
+          </p>
+        </div>
+        <div>
+          <button type="button" class="btn-primary" style="white-space: nowrap;" onclick="openNewProjectModal()">+ Novo Artigo / Projeto</button>
+        </div>
+      </section>
+    </div>
+  `;
 }
 
 // ============================================================================
@@ -427,11 +665,35 @@ function renderEditorialCard(r) {
   `;
 }
 
-function visBadge(v) {
-  return v === 'private'
-    ? `<span class="badge-vis vis-private">🔒 Privado</span>`
-    : `<span class="badge-vis vis-public">🌐 Público</span>`;
+function visBadge(v, repo = '', owner = '') {
+  const isPrivate = v === 'private';
+  const label = isPrivate ? '🔒 Privado' : '🌐 Público';
+  const canToggle = repo && currentUser && (currentUser.role === 'admin' || !owner || owner === currentUser.email);
+  if (canToggle) {
+    const nextVis = isPrivate ? 'public' : 'private';
+    return `
+      <button type="button" class="btn-vis-toggle ${isPrivate ? 'is-private' : 'is-public'}" onclick="toggleRepoVisibility('${esc(repo)}', '${nextVis}')" title="Clique para alterar a visibilidade para ${nextVis === 'public' ? 'Público' : 'Privado'}">
+        <span>${label}</span>
+        <span style="font-size:0.68rem; opacity:0.8;">▾</span>
+      </button>
+    `;
+  }
+  return isPrivate
+    ? `<span class="badge-vis vis-private" title="Apenas o autor e administrador têm acesso">${label}</span>`
+    : `<span class="badge-vis vis-public" title="Acesso livre para leitura">${label}</span>`;
 }
+
+window.toggleRepoVisibility = async function(repoName, newVisibility) {
+  const targetLabel = newVisibility === 'public' ? 'PÚBLICO (visível a todos na rede local)' : 'PRIVADO (visível apenas a você e ao administrador)';
+  if (!confirm(`Deseja alterar a visibilidade de '${repoName}' para ${targetLabel}?`)) return;
+  try {
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repoName)}/visibility`, { visibility: newVisibility });
+    showToast(`✓ Visibilidade alterada para ${newVisibility === 'public' ? 'Público 🌐' : 'Privado 🔒'}`);
+    render();
+  } catch (err) {
+    alert('Erro ao alterar visibilidade: ' + err.message);
+  }
+};
 
 // ============================================================================
 // VIEW 2: ESPAÇO DOCUMENTAL (LEITURA, EDITOR, PARECERES, PUBLICAÇÃO)
@@ -596,7 +858,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
       <div class="doc-kicker-bar">
         <span class="doc-kicker">SisTer Git Editorial · Identidade Documental Persistente</span>
         <div class="badges-row">
-          ${visBadge(edData.visibility || 'public')}
+          ${visBadge(edData.visibility || 'public', repo, edData.owner || '')}
           ${stageBadge}
         </div>
       </div>
@@ -868,11 +1130,16 @@ async function renderRepoCode(route) {
     `;
   }
 
+  const rInfo = allReposCache.find(r => r.name === repo) || {};
+
   app.innerHTML = `
     <header class="editorial-doc-header" style="padding:20px 24px;">
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div>
-          <h1 style="font-size:1.4rem; color:var(--navy); margin:0;">${esc(repo)}</h1>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <h1 style="font-size:1.4rem; color:var(--navy); margin:0;">${esc(repo)}</h1>
+            ${visBadge(rInfo.visibility || 'public', repo, rInfo.owner || '')}
+          </div>
           <p style="margin:2px 0 0; color:var(--muted); font-size:0.8rem;">Repositório bare gerenciado pelo nó local SisTer Git</p>
         </div>
         <a href="#/editorial/${encodeURIComponent(repo)}" class="btn-primary" style="font-size:0.8rem;">
@@ -1092,6 +1359,11 @@ window.openAuthModal = function() {
       document.querySelector('#authConnectedName').textContent = name;
       document.querySelector('#authConnectedEmail').textContent = currentUser.email;
       document.querySelector('#authConnectedRole').textContent = currentUser.role === 'admin' ? 'Administrador' : 'Pesquisador Embrapa';
+
+      const adminBox = document.querySelector('#adminUserManagementBox');
+      if (adminBox) {
+        adminBox.classList.toggle('hidden', currentUser.role !== 'admin');
+      }
     }
   } else {
     document.querySelector('#authTabsNav')?.classList.remove('hidden');
@@ -1105,6 +1377,75 @@ window.openAuthModal = function() {
     if (tokenInput) tokenInput.value = getToken();
   }
   openModal('modalAuth');
+};
+
+window.openUsersModal = async function() {
+  closeModal('modalAuth');
+  openModal('modalUsers');
+  await reloadAllowedUsers();
+};
+
+async function reloadAllowedUsers() {
+  const container = document.querySelector('#allowedUsersList');
+  if (!container) return;
+  container.innerHTML = '<div style="padding: 16px; text-align: center; color: var(--muted);">Carregando pesquisadores autorizados...</div>';
+  try {
+    const res = await api('/api/v1/admin/users');
+    const users = res.users || [];
+    if (!users.length) {
+      container.innerHTML = '<div style="padding: 16px; text-align: center; color: var(--muted);">Nenhum usuário cadastrado na lista restrita. (Modo aberto ativo).</div>';
+      return;
+    }
+    container.innerHTML = users.map(u => `
+      <div class="user-row">
+        <div>
+          <strong style="color: var(--navy); display: block;">${esc(u.name || u.email)}</strong>
+          <span style="font-size: 0.75rem; color: var(--muted);">${esc(u.email)}</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="user-role-tag ${u.role === 'admin' ? 'role-admin' : 'role-researcher'}">${u.role === 'admin' ? 'Administrador' : 'Pesquisador'}</span>
+          ${currentUser && currentUser.email !== u.email ? `
+            <button type="button" class="btn-cancel" style="padding: 3px 8px; font-size: 0.72rem; color: #cf222e; border-color: #fca5a5; cursor:pointer;" onclick="handleRemoveAllowedUser('${esc(u.email)}')">Remover</button>
+          ` : '<span style="font-size: 0.72rem; color: var(--muted);">(Você)</span>'}
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    container.innerHTML = `<div style="padding: 16px; color: #cf222e;">Erro: ${esc(err.message)}</div>`;
+  }
+}
+
+window.handleAddAllowedUser = async function(e) {
+  e.preventDefault();
+  const email = document.querySelector('#newUserEmail').value.trim().toLowerCase();
+  const name = document.querySelector('#newUserName').value.trim();
+  const role = document.querySelector('#newUserRole').value;
+  const fb = document.querySelector('#addUserFeedback');
+  if (fb) fb.classList.add('hidden');
+
+  try {
+    await apiPost('/api/v1/admin/users', { email, name, role });
+    showToast(`✓ Pesquisador '${name}' autorizado com sucesso!`);
+    document.querySelector('#newUserEmail').value = '';
+    document.querySelector('#newUserName').value = '';
+    await reloadAllowedUsers();
+  } catch (err) {
+    if (fb) {
+      fb.textContent = err.message;
+      fb.classList.remove('hidden');
+    }
+  }
+};
+
+window.handleRemoveAllowedUser = async function(email) {
+  if (!confirm(`Tem certeza que deseja remover a autorização do pesquisador '${email}'?`)) return;
+  try {
+    await apiPost('/api/v1/admin/users/delete', { email });
+    showToast(`Pesquisador '${email}' removido da lista.`);
+    await reloadAllowedUsers();
+  } catch (err) {
+    alert('Erro ao remover usuário: ' + err.message);
+  }
 };
 
 window.handleRequestOtp = async function(e) {
