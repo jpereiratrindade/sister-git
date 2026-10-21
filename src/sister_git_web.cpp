@@ -84,19 +84,31 @@ static bool is_repo(const std::string &name) {
 static Response error(int status, const std::string &message) { return {status,"application/json; charset=utf-8","{\"error\":"+json(message)+"}"}; }
 static std::vector<std::string> lines(const std::string &s) { std::vector<std::string> v; std::istringstream in(s); std::string x; while(std::getline(in,x)) v.push_back(x); return v; }
 
-static Response repos() {
+static std::string repo_visibility(const std::string &name) {
+  auto r = run({"git", "--git-dir=" + git_dir(name), "config", "--get", "sister.visibility"});
+  if (r.status == 0) {
+    std::string v = r.out;
+    while (!v.empty() && (v.back() == '\n' || v.back() == '\r' || v.back() == ' ')) v.pop_back();
+    if (v == "public" || v == "private") return v;
+  }
+  return auth_token.empty() ? "public" : "private";
+}
+
+static Response repos(bool is_auth) {
   std::string body="{\"repositories\":["; bool first=true;
   std::error_code ec;
   for (const auto &entry : fs::directory_iterator(repo_root, ec)) {
     std::string file=entry.path().filename().string(); if(file.size()<5||file.substr(file.size()-4)!=".git") continue;
     std::string name=file.substr(0,file.size()-4); if(!is_repo(name)) continue;
+    std::string vis = repo_visibility(name);
+    if (!is_auth && vis == "private") continue;
     auto head=run({"git","--git-dir="+git_dir(name),"symbolic-ref","--short","HEAD"});
     auto counts=run({"git","--git-dir="+git_dir(name),"for-each-ref","--format=%(refname)","refs/heads","refs/tags"}); int branches=0,tags=0;
     for(auto &x:lines(counts.out)){if(x.rfind("refs/heads/",0)==0)branches++;else if(x.rfind("refs/tags/",0)==0)tags++;}
     auto last=run({"git","--git-dir="+git_dir(name),"log","-1","--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI"}); auto f=lines(last.out); std::string log=last.status!=0||f.empty()?"":f[0];
     uintmax_t bytes=0; for(auto i=fs::recursive_directory_iterator(entry.path(),fs::directory_options::skip_permission_denied,ec);!ec&&i!=fs::recursive_directory_iterator();i.increment(ec)) if(i->is_regular_file(ec)) bytes+=i->file_size(ec);
     if(!first) body+=',';
-    first=false; body+="{\"name\":"+json(name)+",\"default_branch\":"+json(head.status==0?head.out.substr(0,head.out.find('\n')):"")+",\"branches\":"+std::to_string(branches)+",\"tags\":"+std::to_string(tags)+",\"size_bytes\":"+std::to_string(bytes)+",\"integrity\":\"not_checked\"";
+    first=false; body+="{\"name\":"+json(name)+",\"visibility\":"+json(vis)+",\"default_branch\":"+json(head.status==0?head.out.substr(0,head.out.find('\n')):"")+",\"branches\":"+std::to_string(branches)+",\"tags\":"+std::to_string(tags)+",\"size_bytes\":"+std::to_string(bytes)+",\"integrity\":\"not_checked\"";
     if(log.empty()) body+=",\"empty\":true,\"last_commit\":null}"; else { auto p=std::vector<std::string>{}; size_t b=0,a; while((a=log.find('\x1f',b))!=std::string::npos){p.push_back(log.substr(b,a-b));b=a+1;}p.push_back(log.substr(b)); body+=",\"empty\":false,\"last_commit\":{\"hash\":"+json(p[0])+",\"short_hash\":"+json(p[1])+",\"subject\":"+json(p[2])+",\"author\":"+json(p[3])+",\"date\":"+json(p[4])+"}}"; }
   }
   return {200,"application/json; charset=utf-8",body+"]}"};
@@ -129,15 +141,16 @@ static Response static_file(std::string path) {
   if(path.find("..")!=std::string::npos) return error(400,"Caminho inválido");
   fs::path p=web_root+path;std::ifstream f(p,std::ios::binary);if(!f)return error(404,"Não encontrado");std::ostringstream s;s<<f.rdbuf();std::string ext=p.extension().string(),type="application/octet-stream";if(ext==".html")type="text/html; charset=utf-8";else if(ext==".css")type="text/css; charset=utf-8";else if(ext==".js")type="text/javascript; charset=utf-8";else if(ext==".svg")type="image/svg+xml";return{200,type,s.str()};
 }
-static Response route(const std::string &target) {
+static Response route(const std::string &target, bool is_auth) {
   size_t qm=target.find('?');std::string path=target.substr(0,qm),qs=qm==std::string::npos?"":target.substr(qm+1);auto q=query(qs);
   if(path=="/api/v1/health")return{200,"application/json; charset=utf-8","{\"status\":\"ok\",\"read_only\":true}"};
+  if(path=="/api/v1/auth/status")return{200,"application/json; charset=utf-8","{\"authenticated\":"+std::string(is_auth?"true":"false")+",\"auth_required\":"+std::string(auth_token.empty()?"false":"true")+"}"};
   if(path=="/api/v1/ha")return{200,"application/json; charset=utf-8","{\"nodes\":[{\"name\":\"LABECO-SRV\",\"role\":\"git-host\",\"status\":\"not_verified\"},{\"name\":\"Fedora Silverblue\",\"role\":\"planned-replica\",\"status\":\"not_verified\"}],\"replication\":\"not_verified\",\"last_sync\":null}"};
-  if(path=="/api/v1/repos")return repos();
-  const std::string pre="/api/v1/repos/";if(path.rfind(pre,0)==0){std::string rest=path.substr(pre.size());size_t slash=rest.find('/');std::string name=url_decode(rest.substr(0,slash));if(!is_repo(name))return error(404,"Repositório não encontrado");std::string action=slash==std::string::npos?"":rest.substr(slash+1);if(action=="refs")return refs(name);if(action=="commits")return commits(name,q);if(action=="tree")return tree(name,q);if(action=="blob")return blob(name,q);if(action=="compare")return compare(name,q);return error(404,"Rota não encontrada");}
+  if(path=="/api/v1/repos")return repos(is_auth);
+  const std::string pre="/api/v1/repos/";if(path.rfind(pre,0)==0){std::string rest=path.substr(pre.size());size_t slash=rest.find('/');std::string name=url_decode(rest.substr(0,slash));if(!is_repo(name))return error(404,"Repositório não encontrado");std::string vis=repo_visibility(name);if(!is_auth&&vis=="private")return error(404,"Repositório não encontrado");std::string action=slash==std::string::npos?"":rest.substr(slash+1);if(action=="refs")return refs(name);if(action=="commits")return commits(name,q);if(action=="tree")return tree(name,q);if(action=="blob")return blob(name,q);if(action=="compare")return compare(name,q);return error(404,"Rota não encontrada");}
   return static_file(path);
 }
 static std::string reason(int s){if(s==200)return"OK";if(s==400)return"Bad Request";if(s==401)return"Unauthorized";if(s==404)return"Not Found";if(s==405)return"Method Not Allowed";return"Internal Server Error";}
-static bool authorized(const std::string &headers){if(auth_token.empty())return true;return headers.find("Authorization: Bearer "+auth_token+"\r\n")!=std::string::npos;}
-static void client(int fd){std::string req;char b[4096];while(req.find("\r\n\r\n")==std::string::npos&&req.size()<65536){ssize_t n=read(fd,b,sizeof(b));if(n<=0)break;req.append(b,n);}std::istringstream in(req);std::string method,target,version;in>>method>>target>>version;Response r;if(method!="GET")r=error(405,"Somente GET é permitido");else if(!authorized(req))r=error(401,"Token ausente ou inválido");else r=route(target);std::string h="HTTP/1.1 "+std::to_string(r.status)+" "+reason(r.status)+"\r\nContent-Type: "+r.type+"\r\nContent-Length: "+std::to_string(r.body.size())+"\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'\r\nConnection: close\r\n\r\n";write(fd,h.data(),h.size());write(fd,r.body.data(),r.body.size());close(fd);}
-int main(int argc,char**argv){repo_root=getenv("SISTER_GIT_ROOT")?getenv("SISTER_GIT_ROOT"):"/srv/git";web_root=getenv("SISTER_GIT_WEB_ROOT")?getenv("SISTER_GIT_WEB_ROOT"):"web";auth_token=getenv("SISTER_GIT_WEB_TOKEN")?getenv("SISTER_GIT_WEB_TOKEN"):"";std::string bind="127.0.0.1";int port=8787;for(int i=1;i<argc;i++){std::string a=argv[i];if(a=="--bind"&&i+1<argc)bind=argv[++i];else if(a=="--port"&&i+1<argc)port=std::stoi(argv[++i]);else{std::cerr<<"Uso: sister-git-web [--bind IP] [--port PORT]\n";return 2;}}if(bind!="127.0.0.1"&&bind!="::1"&&auth_token.empty()){std::cerr<<"[ERRO] SISTER_GIT_WEB_TOKEN obrigatório fora de loopback\n";return 1;}if(!fs::is_directory(repo_root)||!fs::is_directory(web_root)){std::cerr<<"[ERRO] Diretório de repositórios ou web ausente\n";return 1;}signal(SIGPIPE,SIG_IGN);int s=socket(AF_INET,SOCK_STREAM,0),one=1;setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));sockaddr_in addr{};addr.sin_family=AF_INET;addr.sin_port=htons(port);if(inet_pton(AF_INET,bind.c_str(),&addr.sin_addr)!=1||::bind(s,(sockaddr*)&addr,sizeof(addr))||listen(s,64)){std::cerr<<"[ERRO] bind/listen: "<<strerror(errno)<<"\n";return 1;}std::cout<<"[OK] SisTer Git Web em http://"<<bind<<":"<<port<<" (somente leitura)\n"<<std::flush;for(;;){int c=accept(s,nullptr,nullptr);if(c>=0)client(c);} }
+static bool is_authorized(const std::string &headers){if(auth_token.empty())return true;return headers.find("Authorization: Bearer "+auth_token+"\r\n")!=std::string::npos;}
+static void client(int fd){std::string req;char b[4096];while(req.find("\r\n\r\n")==std::string::npos&&req.size()<65536){ssize_t n=read(fd,b,sizeof(b));if(n<=0)break;req.append(b,n);}std::istringstream in(req);std::string method,target,version;in>>method>>target>>version;Response r;if(method!="GET")r=error(405,"Somente GET é permitido");else{bool auth=is_authorized(req);r=route(target,auth);}std::string h="HTTP/1.1 "+std::to_string(r.status)+" "+reason(r.status)+"\r\nContent-Type: "+r.type+"\r\nContent-Length: "+std::to_string(r.body.size())+"\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'\r\nConnection: close\r\n\r\n";write(fd,h.data(),h.size());write(fd,r.body.data(),r.body.size());close(fd);}
+int main(int argc,char**argv){repo_root=getenv("SISTER_GIT_ROOT")?getenv("SISTER_GIT_ROOT"):"/srv/git";web_root=getenv("SISTER_GIT_WEB_ROOT")?getenv("SISTER_GIT_WEB_ROOT"):"web";auth_token=getenv("SISTER_GIT_WEB_TOKEN")?getenv("SISTER_GIT_WEB_TOKEN"):"";std::string bind="127.0.0.1";int port=8787;for(int i=1;i<argc;i++){std::string a=argv[i];if(a=="--bind"&&i+1<argc)bind=argv[++i];else if(a=="--port"&&i+1<argc)port=std::stoi(argv[++i]);else{std::cerr<<"Uso: sister-git-web [--bind IP] [--port PORT]\n";return 2;}}if(auth_token.empty()){std::ifstream tf(repo_root+"/.web_token");if(tf){std::getline(tf,auth_token);while(!auth_token.empty()&&(auth_token.back()=='\n'||auth_token.back()=='\r'||auth_token.back()==' '))auth_token.pop_back();}}if(bind!="127.0.0.1"&&bind!="::1"&&auth_token.empty()){std::cerr<<"[ERRO] SISTER_GIT_WEB_TOKEN obrigatório fora de loopback\n";return 1;}if(!fs::is_directory(repo_root)||!fs::is_directory(web_root)){std::cerr<<"[ERRO] Diretório de repositórios ou web ausente\n";return 1;}signal(SIGPIPE,SIG_IGN);int s=socket(AF_INET,SOCK_STREAM,0),one=1;setsockopt(s,SOL_SOCKET,SO_REUSEADDR,&one,sizeof(one));sockaddr_in addr{};addr.sin_family=AF_INET;addr.sin_port=htons(port);if(inet_pton(AF_INET,bind.c_str(),&addr.sin_addr)!=1||::bind(s,(sockaddr*)&addr,sizeof(addr))||listen(s,64)){std::cerr<<"[ERRO] bind/listen: "<<strerror(errno)<<"\n";return 1;}std::cout<<"[OK] SisTer Git Web em http://"<<bind<<":"<<port<<" (somente leitura)\n"<<std::flush;for(;;){int c=accept(s,nullptr,nullptr);if(c>=0)client(c);} }

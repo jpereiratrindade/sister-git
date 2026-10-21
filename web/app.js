@@ -1,8 +1,20 @@
 const app = document.querySelector('#app');
+const topbarAuth = document.querySelector('#topbarAuth');
+
+const getToken = () => localStorage.getItem('sister_token') || '';
+const setToken = t => t ? localStorage.setItem('sister_token', t) : localStorage.removeItem('sister_token');
 
 const api = async path => {
-  const r = await fetch(path);
+  const headers = {};
+  const token = getToken();
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const r = await fetch(path, { headers });
   if (!r.ok) {
+    if (r.status === 401 && token) {
+      setToken('');
+      updateTopAuth();
+      throw Error('Sessão expirada ou token inválido. Por favor, autentique-se novamente.');
+    }
     let e = await r.json().catch(() => ({ error: r.statusText }));
     throw Error(e.error || 'Erro na requisição');
   }
@@ -42,6 +54,63 @@ const timeAgo = s => {
   } catch (_) {
     return date(s);
   }
+};
+
+async function updateTopAuth() {
+  if (!topbarAuth) return;
+  try {
+    const st = await api('/api/v1/auth/status').catch(() => ({ authenticated: false, auth_required: false }));
+    const hasToken = Boolean(getToken());
+    if (st.authenticated) {
+      topbarAuth.innerHTML = `
+        <div class="auth-box">
+          <span class="auth-pill-active"><i class="dot-online"></i> Pesquisador</span>
+          <button class="btn-top-auth btn-logout" onclick="logout()" title="Encerrar sessão autenticada">Sair</button>
+        </div>
+      `;
+    } else {
+      topbarAuth.innerHTML = `
+        <div class="auth-box">
+          <span class="auth-pill-anon"><i class="dot-anon"></i> Somente leitura</span>
+          <button class="btn-top-auth btn-login" onclick="login()" title="Autenticar como pesquisador do laboratório">Entrar</button>
+        </div>
+      `;
+    }
+  } catch (_) {
+    topbarAuth.innerHTML = `<div class="readonly"><i></i> Somente leitura</div>`;
+  }
+}
+
+window.login = async function() {
+  const token = prompt('Informe o Token de Acesso do LABECO (Bearer token):');
+  if (token === null) return;
+  const clean = token.trim();
+  if (!clean) {
+    alert('Token não pode ser vazio.');
+    return;
+  }
+  setToken(clean);
+  try {
+    const s = await api('/api/v1/auth/status');
+    if (s.auth_required && !s.authenticated) {
+      setToken('');
+      alert('Token inválido ou não autorizado pelo servidor.');
+      updateTopAuth();
+      return;
+    }
+    await updateTopAuth();
+    render();
+  } catch (err) {
+    setToken('');
+    alert('Erro ao autenticar: ' + err.message);
+    updateTopAuth();
+  }
+};
+
+window.logout = function() {
+  setToken('');
+  updateTopAuth();
+  render();
 };
 
 // Parse location hash: #/repo/tab?ref=foo&path=bar
@@ -86,9 +155,13 @@ window.copyText = function(text, btn) {
   });
 };
 
-function frame(repo, tab, content, ref = '', branches = [], tags = []) {
+function frame(repo, tab, content, ref = '', branches = [], tags = [], visibility = '') {
   const branchCount = branches.length;
   const tagCount = tags.length;
+
+  const visBadge = visibility === 'private'
+    ? `<span class="badge badge-private">🔒 Privado</span>`
+    : `<span class="badge badge-public">🌐 Público</span>`;
 
   return `
     <header class="repo-header">
@@ -98,7 +171,7 @@ function frame(repo, tab, content, ref = '', branches = [], tags = []) {
           <a href="#/">repositórios</a>
           <span class="sep">/</span>
           <a class="repo-name" href="${link(repo, 'code')}"><b>${esc(repo)}</b></a>
-          <span class="badge badge-public">Laboratório (Local)</span>
+          ${visBadge}
         </div>
       </div>
       <nav class="repo-tabs">
@@ -159,7 +232,6 @@ function renderMarkdown(src) {
     const rawLine = lines[i];
     const line = rawLine.trim();
 
-    // Code block
     if (line.startsWith('```')) {
       if (inCode) {
         html.push(`<pre class="md-codeblock"><code>${esc(codeBuf.join('\n'))}</code></pre>`);
@@ -179,7 +251,6 @@ function renderMarkdown(src) {
       continue;
     }
 
-    // Horizontal rule
     if (/^(\*\*\*|---|___)$/.test(line)) {
       flushList();
       flushTable();
@@ -187,11 +258,9 @@ function renderMarkdown(src) {
       continue;
     }
 
-    // Table
     if (line.startsWith('|') && line.endsWith('|')) {
       flushList();
       if (/^\|[\s\-:|]+\|$/.test(line)) {
-        // Separator line
         tableHeader = false;
         continue;
       }
@@ -209,7 +278,6 @@ function renderMarkdown(src) {
       flushTable();
     }
 
-    // Headings
     if (line.startsWith('#')) {
       flushList();
       const m = line.match(/^(#{1,6})\s+(.*)$/);
@@ -221,7 +289,6 @@ function renderMarkdown(src) {
       }
     }
 
-    // Blockquote & Alerts
     if (line.startsWith('>')) {
       flushList();
       let bq = line.replace(/^>\s?/, '');
@@ -244,7 +311,6 @@ function renderMarkdown(src) {
       continue;
     }
 
-    // List item
     if (/^[-*]\s+/.test(line)) {
       if (!inList) {
         html.push('<ul class="md-list">');
@@ -256,12 +322,8 @@ function renderMarkdown(src) {
       flushList();
     }
 
-    // Empty line
-    if (!line) {
-      continue;
-    }
+    if (!line) continue;
 
-    // Paragraph
     html.push(`<p class="md-p">${inlineFormat(line)}</p>`);
   }
 
@@ -290,10 +352,7 @@ function renderDiff(diffText) {
       continue;
     }
 
-    if (!currentFile) {
-      // Preface / stat lines
-      continue;
-    }
+    if (!currentFile) continue;
 
     if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('index ')) {
       currentFile.lines.push({ type: 'meta', text: line });
@@ -378,21 +437,30 @@ function renderBranchSelector(repo, currentRef, branches, currentPath, tab = 'co
 // Views
 async function home() {
   const d = await api('/api/v1/repos');
+  const authStatus = await api('/api/v1/auth/status').catch(() => ({ authenticated: false }));
+
+  const privates = d.repositories.filter(r => r.visibility === 'private').length;
+  const publics = d.repositories.filter(r => r.visibility === 'public').length;
+
   app.innerHTML = `
     <section class="hero-github">
       <div class="hero-content">
         <div class="eyebrow">Laboratório de Ecologia e Conservação</div>
         <h1>SisTer Git</h1>
-        <p class="hero-desc">Hospedagem segura e navegação visual de repositórios Git, executando diretamente sobre o cluster local sem dependências externas.</p>
+        <p class="hero-desc">Hospedagem segura e governança visual dos repositórios Git do LABECO, com isolamento estrito e visibilidade controlada.</p>
       </div>
       <div class="hero-badges">
-        <span class="status-pill status-active">● Sistema Ativo</span>
-        <span class="meta-tag">${d.repositories.length} repositórios</span>
+        ${authStatus.authenticated ? `
+          <span class="status-pill status-active">● Pesquisador Autenticado</span>
+        ` : `
+          <span class="status-pill status-warn">Acesso Anônimo / Leitura Pública</span>
+        `}
+        <span class="meta-tag">${d.repositories.length} visíveis (${publics} públicos${privates ? `, ${privates} privados` : ''})</span>
       </div>
     </section>
 
     <div class="repo-filter-bar">
-      <h2>Repositórios do Laboratório</h2>
+      <h2>Repositórios Disponíveis</h2>
     </div>
 
     <div class="repo-grid">
@@ -403,6 +471,7 @@ async function home() {
               <svg class="octicon repo-icon" viewBox="0 0 16 16" width="18" height="18"><path fill="currentColor" d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h6.5a.25.25 0 0 1 .25.25v1.5a.25.25 0 0 1-.25.25h-6.5a.25.25 0 0 1-.25-.25Z"></path></svg>
               <a class="repo-link" href="${link(r.name)}">${esc(r.name)}</a>
               <span class="badge badge-branch">${esc(r.default_branch || 'main')}</span>
+              ${r.visibility === 'private' ? '<span class="badge badge-private">🔒 Privado</span>' : '<span class="badge badge-public">🌐 Público</span>'}
             </div>
           </div>
           <div class="repo-card-body">
@@ -419,20 +488,25 @@ async function home() {
             <span class="stat-item">${fmt(r.size_bytes)}</span>
           </div>
         </article>
-      `).join('')}
+      `).join('') || '<div class="empty-state">Nenhum repositório público disponível. Se você é um pesquisador autorizado, clique em "Entrar" no topo para visualizar repositórios privados.</div>'}
     </div>
   `;
 }
 
 async function code(repo, path = '', reqRef = '') {
-  const refsData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`);
+  const [refsData, reposList] = await Promise.all([
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
+    api('/api/v1/repos').catch(() => ({ repositories: [] }))
+  ]);
+  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
+  const visibility = currentRepoMeta?.visibility || 'public';
+
   const branches = refsData.branches || [];
   const tags = refsData.tags || [];
   const branch = reqRef || branches[0]?.name || 'main';
 
   const tree = await api(`/api/v1/repos/${encodeURIComponent(repo)}/tree?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`);
 
-  // Path Breadcrumbs
   const segments = path.split('/').filter(Boolean);
   let crumbsHtml = `<a class="crumb-link" href="${link(repo, 'code', { ref: branch })}"><b>${esc(repo)}</b></a>`;
   let accum = '';
@@ -441,17 +515,14 @@ async function code(repo, path = '', reqRef = '') {
     crumbsHtml += ` <span class="crumb-sep">/</span> <a class="crumb-link" href="${link(repo, 'code', { ref: branch, path: accum })}">${esc(seg)}</a>`;
   });
 
-  // Sort entries: directories first, then alphabetical
   const sorted = (tree.entries || []).sort((a, b) => {
     if (a.type === 'tree' && b.type !== 'tree') return -1;
     if (a.type !== 'tree' && b.type === 'tree') return 1;
     return a.name.localeCompare(b.name);
   });
 
-  // Check for README
   const readmeEntry = sorted.find(e => e.type === 'blob' && /^readme(\.md|\.txt)?$/i.test(e.name));
 
-  // Rows
   const rows = sorted.map(e => {
     const isDir = e.type === 'tree';
     const itemPath = path ? `${path}/${e.name}` : e.name;
@@ -517,18 +588,23 @@ async function code(repo, path = '', reqRef = '') {
       ${rows || '<div class="empty-state">Diretório vazio.</div>'}
     </div>
     ${readmeHtml}
-  `, branch, branches, tags);
+  `, branch, branches, tags, visibility);
 }
 
 async function blob(repo, path, reqRef = '') {
-  const refsData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`);
+  const [refsData, reposList] = await Promise.all([
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
+    api('/api/v1/repos').catch(() => ({ repositories: [] }))
+  ]);
+  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
+  const visibility = currentRepoMeta?.visibility || 'public';
+
   const branches = refsData.branches || [];
   const tags = refsData.tags || [];
   const branch = reqRef || branches[0]?.name || 'main';
 
   const d = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`);
 
-  // Path segments
   const segments = path.split('/').filter(Boolean);
   let crumbsHtml = `<a class="crumb-link" href="${link(repo, 'code', { ref: branch })}"><b>${esc(repo)}</b></a>`;
   let accum = '';
@@ -583,11 +659,17 @@ async function blob(repo, path, reqRef = '') {
     </div>
   `;
 
-  app.innerHTML = frame(repo, 'code', `${toolbar}${blobBox}`, branch, branches, tags);
+  app.innerHTML = frame(repo, 'code', `${toolbar}${blobBox}`, branch, branches, tags, visibility);
 }
 
 async function commits(repo, reqRef = '') {
-  const refsData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`);
+  const [refsData, reposList] = await Promise.all([
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
+    api('/api/v1/repos').catch(() => ({ repositories: [] }))
+  ]);
+  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
+  const visibility = currentRepoMeta?.visibility || 'public';
+
   const branches = refsData.branches || [];
   const tags = refsData.tags || [];
   const branch = reqRef || branches[0]?.name || 'main';
@@ -628,11 +710,17 @@ async function commits(repo, reqRef = '') {
     </div>
   `;
 
-  app.innerHTML = frame(repo, 'commits', `${toolbar}${list}`, branch, branches, tags);
+  app.innerHTML = frame(repo, 'commits', `${toolbar}${list}`, branch, branches, tags, visibility);
 }
 
 async function refs(repo) {
-  const d = await api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`);
+  const [d, reposList] = await Promise.all([
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
+    api('/api/v1/repos').catch(() => ({ repositories: [] }))
+  ]);
+  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
+  const visibility = currentRepoMeta?.visibility || 'public';
+
   const branches = d.branches || [];
   const tags = d.tags || [];
 
@@ -667,11 +755,17 @@ async function refs(repo) {
       ${renderSection('Branches', branches, true)}
       ${renderSection('Tags', tags, false)}
     </div>
-  `, 'main', branches, tags);
+  `, 'main', branches, tags, visibility);
 }
 
 async function compare(repo, reqBase = '', reqHead = '') {
-  const refsData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`);
+  const [refsData, reposList] = await Promise.all([
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
+    api('/api/v1/repos').catch(() => ({ repositories: [] }))
+  ]);
+  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
+  const visibility = currentRepoMeta?.visibility || 'public';
+
   const branches = refsData.branches || [];
   const tags = refsData.tags || [];
 
@@ -716,7 +810,7 @@ async function compare(repo, reqBase = '', reqHead = '') {
         <div class="loading-state">Carregando comparação…</div>
       </div>
     </div>
-  `, 'main', branches, tags);
+  `, 'main', branches, tags, visibility);
 
   const form = document.querySelector('#compareForm');
   const out = document.querySelector('#diffOutput');
@@ -740,7 +834,6 @@ async function compare(repo, reqBase = '', reqHead = '') {
     doCompare(b, h);
   };
 
-  // Run initial compare
   doCompare(defaultBase, defaultHead);
 }
 
@@ -782,6 +875,7 @@ async function infra() {
 }
 
 async function render() {
+  updateTopAuth();
   app.innerHTML = '<div class="loading-state">Consultando SisTer Git…</div>';
   try {
     const p = parseHash();
