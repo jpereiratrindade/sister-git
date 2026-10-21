@@ -2,7 +2,16 @@
 
 **Versão:** 0.3.0 · **Princípio:** Sempre pronto. Sempre incompleto.
 
-Um serviço mínimo de hospedagem de repositórios do ecossistema SisTer: **Git bare + SSH existente**. Não instala Gitea, GitLab, serviço web, banco de dados, OAuth ou daemon Git. Não substitui GitHub nem GitLab e não tem Pull Requests/Issues/UI. A etapa 2 acrescenta **redundância por Git nativo**. A etapa 3 acrescenta **execução simétrica em dois nós**, com fallback por comando e sincronização fast-forward, preservando a arquitetura mínima.
+Um serviço mínimo de hospedagem de repositórios do ecossistema SisTer: **Git bare + SSH existente**. Não instala Gitea, GitLab, banco de dados, OAuth ou daemon Git. A etapa 2 acrescenta **redundância por Git nativo**. A etapa 3 acrescenta **execução simétrica em dois nós**, com fallback por comando e sincronização fast-forward. A etapa web acrescenta uma interface própria de consulta, sem substituir o Git/SSH nem modificar repositórios.
+
+## Interface web (primeira entrega)
+
+O SisTer Git Web oferece dashboard, navegação de código, commits, branches, tags e comparação entre revisões. Backend C++17 sem dependências externas; API versionada e somente leitura. Veja **[docs/SISTER-GIT-WEB.md](docs/SISTER-GIT-WEB.md)**.
+
+```bash
+make
+SISTER_GIT_ROOT=/srv/git SISTER_GIT_WEB_ROOT="$PWD/web" ./build/sister-git-web
+```
 
 ## Instalar
 
