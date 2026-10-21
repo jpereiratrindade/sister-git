@@ -461,8 +461,12 @@ static AuthUser authenticate_request(const std::string &headers) {
 // ============================================================================
 
 static Result git_commit_file(const std::string &name, const std::string &filename, const std::string &content, const std::string &commit_msg, const std::string &author_name = "SisTer Editor", const std::string &author_email = "editorial@labeco.invalid") {
+  std::string clean_content = content;
+  if (!clean_content.empty() && clean_content.back() != '\n') {
+    clean_content += '\n';
+  }
   std::string gd = git_dir(name);
-  auto ho = run_stdin({"git", "--git-dir=" + gd, "hash-object", "-w", "--stdin"}, content);
+  auto ho = run_stdin({"git", "--git-dir=" + gd, "hash-object", "-w", "--stdin"}, clean_content);
   if (ho.status != 0) return {ho.status, "Falha ao gravar blob Git"};
   std::string blob_sha = ho.out;
   while (!blob_sha.empty() && (blob_sha.back() == '\n' || blob_sha.back() == '\r' || blob_sha.back() == ' ')) blob_sha.pop_back();
