@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="pt-BR">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -8,470 +9,506 @@
   <title>SisTer Git · Espaço Editorial &amp; Repositórios</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="/app.css">
 </head>
+
 <body>
-<a class="skip" href="#app">Ir para o conteúdo</a>
+  <a class="skip" href="#app">Ir para o conteúdo</a>
 
-<div class="shell">
-  <!-- SIDEBAR IDENTIDADE VISUAL MORFO -->
-  <aside class="sidebar" id="sidebar">
-    <a class="brand" href="#/" aria-label="SisTer Git, início">
-      <svg viewBox="0 0 44 44" class="brand-logo" aria-hidden="true">
-        <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 7v30"/>
-          <path d="M32 14v23"/>
-          <path d="M12 14c0 6 20 2 20 9"/>
-          <path d="M12 23c0 6 20 2 20 9"/>
-          <path d="M12 7c0 5 20 1 20 7"/>
-        </g>
-        <circle cx="12" cy="7" r="3.2" fill="#2ea8e8"/>
-        <circle cx="12" cy="14" r="2.8" fill="currentColor"/>
-        <circle cx="12" cy="23" r="2.8" fill="currentColor"/>
-        <circle cx="12" cy="37" r="3.2" fill="#087f8c"/>
-        <circle cx="32" cy="14" r="3.2" fill="#2ea8e8"/>
-        <circle cx="32" cy="23" r="2.8" fill="currentColor"/>
-        <circle cx="32" cy="32" r="2.8" fill="currentColor"/>
-        <circle cx="32" cy="37" r="3.2" fill="#087f8c"/>
-      </svg>
-      <span class="brand-words">
-        <span>Ecossistema SisTer</span>
-        <strong>SisTer Git</strong>
-      </span>
-    </a>
-    <p class="sidebar-subtitle">Governança Editorial &amp; Gestão Git</p>
-
-    <div class="navlabel">ESPAÇOS DE TRABALHO</div>
-    <nav aria-label="Espaços de Trabalho" id="sidebarNav">
-      <a href="#/" class="nav-item active" id="nav-home">
-        <span class="navico">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-            <polyline points="9 22 9 12 15 12 15 22"/>
-          </svg>
+  <div class="shell">
+    <!-- SIDEBAR IDENTIDADE VISUAL MORFO -->
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#/" aria-label="SisTer Git, início">
+        <svg viewBox="0 0 44 44" class="brand-logo" aria-hidden="true">
+          <g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 7v30" />
+            <path d="M32 14v23" />
+            <path d="M12 14c0 6 20 2 20 9" />
+            <path d="M12 23c0 6 20 2 20 9" />
+            <path d="M12 7c0 5 20 1 20 7" />
+          </g>
+          <circle cx="12" cy="7" r="3.2" fill="#2ea8e8" />
+          <circle cx="12" cy="14" r="2.8" fill="currentColor" />
+          <circle cx="12" cy="23" r="2.8" fill="currentColor" />
+          <circle cx="12" cy="37" r="3.2" fill="#087f8c" />
+          <circle cx="32" cy="14" r="3.2" fill="#2ea8e8" />
+          <circle cx="32" cy="23" r="2.8" fill="currentColor" />
+          <circle cx="32" cy="32" r="2.8" fill="currentColor" />
+          <circle cx="32" cy="37" r="3.2" fill="#087f8c" />
+        </svg>
+        <span class="brand-words">
+          <span>Ecossistema SisTer</span>
+          <strong>SisTer Git</strong>
         </span>
-        <span class="navtxt">Início</span>
       </a>
-      <a href="#/editorial" class="nav-item" id="nav-editorial">
-        <span class="navico">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 19c3-1.5 6-1.5 9 1 3-2.5 6-2.5 9-1V7c-3-1.5-6-1.5-9 1-3-2.5-6-2.5-9-1z"/>
-            <path d="M12 20V9"/>
-            <path d="M12 9c-.8-2 0-4 2.5-6 0 2.5-1.2 4.5-2.5 6z" fill="currentColor"/>
-            <path d="M7 13c-1.5-1-2.5-2.5-2.5-5"/>
-            <path d="M17 13c1.5-1 2.5-2.5 2.5-5"/>
-            <circle cx="4.5" cy="8" r="1.5" fill="#e5b94f"/>
-            <circle cx="19.5" cy="8" r="1.5" fill="#2ea8e8"/>
-          </svg>
-        </span>
-        <span class="navtxt">Espaço Editorial</span>
-        <span class="navtag">C++26</span>
-      </a>
-      <a href="#/repos" class="nav-item" id="nav-repos">
-        <span class="navico">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="6" y1="4" x2="6" y2="20"/>
-            <line x1="18" y1="9" x2="18" y2="20"/>
-            <path d="M6 9c0 3 12 1 12 5"/>
-            <circle cx="6" cy="4" r="2" fill="currentColor"/>
-            <circle cx="6" cy="9" r="1.8" fill="currentColor"/>
-            <circle cx="6" cy="20" r="2" fill="currentColor"/>
-            <circle cx="18" cy="9" r="2" fill="currentColor"/>
-            <circle cx="18" cy="20" r="2" fill="currentColor"/>
-          </svg>
-        </span>
-        <span class="navtxt">Repositórios</span>
-      </a>
-      <a href="#/infra" class="nav-item" id="nav-infra">
-        <span class="navico">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="4" width="7" height="16" rx="2"/>
-            <rect x="14" y="4" width="7" height="16" rx="2"/>
-            <line x1="10" y1="9" x2="14" y2="9"/>
-            <line x1="10" y1="15" x2="14" y2="15"/>
-            <circle cx="6.5" cy="15" r="1" fill="#14805e"/>
-            <circle cx="17.5" cy="15" r="1" fill="#2ea8e8"/>
-          </svg>
-        </span>
-        <span class="navtxt">Infraestrutura &amp; HA</span>
-      </a>
-    </nav>
+      <p class="sidebar-subtitle">Governança Editorial &amp; Gestão Git</p>
 
-    <div class="sidebar-action">
-      <button type="button" class="btn-sidebar-create" onclick="openNewProjectModal()">
-        <span>+</span> Novo Artigo / Projeto
-      </button>
-    </div>
+      <div class="navlabel">ESPAÇOS DE TRABALHO</div>
+      <nav aria-label="Espaços de Trabalho" id="sidebarNav">
+        <a href="#/" class="nav-item active" id="nav-home">
+          <span class="navico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
+          </span>
+          <span class="navtxt">Início</span>
+        </a>
+        <a href="#/editorial" class="nav-item" id="nav-editorial">
+          <span class="navico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <path d="M3 19c3-1.5 6-1.5 9 1 3-2.5 6-2.5 9-1V7c-3-1.5-6-1.5-9 1-3-2.5-6-2.5-9-1z" />
+              <path d="M12 20V9" />
+              <path d="M12 9c-.8-2 0-4 2.5-6 0 2.5-1.2 4.5-2.5 6z" fill="currentColor" />
+              <path d="M7 13c-1.5-1-2.5-2.5-2.5-5" />
+              <path d="M17 13c1.5-1 2.5-2.5 2.5-5" />
+              <circle cx="4.5" cy="8" r="1.5" fill="#e5b94f" />
+              <circle cx="19.5" cy="8" r="1.5" fill="#2ea8e8" />
+            </svg>
+          </span>
+          <span class="navtxt">Espaço Editorial</span>
+          <span class="navtag">C++26</span>
+        </a>
+        <a href="#/repos" class="nav-item" id="nav-repos">
+          <span class="navico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <line x1="6" y1="4" x2="6" y2="20" />
+              <line x1="18" y1="9" x2="18" y2="20" />
+              <path d="M6 9c0 3 12 1 12 5" />
+              <circle cx="6" cy="4" r="2" fill="currentColor" />
+              <circle cx="6" cy="9" r="1.8" fill="currentColor" />
+              <circle cx="6" cy="20" r="2" fill="currentColor" />
+              <circle cx="18" cy="9" r="2" fill="currentColor" />
+              <circle cx="18" cy="20" r="2" fill="currentColor" />
+            </svg>
+          </span>
+          <span class="navtxt">Repositórios</span>
+        </a>
+        <a href="#/infra" class="nav-item" id="nav-infra">
+          <span class="navico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round">
+              <rect x="3" y="4" width="7" height="16" rx="2" />
+              <rect x="14" y="4" width="7" height="16" rx="2" />
+              <line x1="10" y1="9" x2="14" y2="9" />
+              <line x1="10" y1="15" x2="14" y2="15" />
+              <circle cx="6.5" cy="15" r="1" fill="#14805e" />
+              <circle cx="17.5" cy="15" r="1" fill="#2ea8e8" />
+            </svg>
+          </span>
+          <span class="navtxt">Infraestrutura &amp; HA</span>
+        </a>
+      </nav>
 
-    <div class="sidebar-bottom">
-      <div class="side-note">
-        <small>PRINCÍPIO DE DESENVOLVIMENTO</small>
-        <strong>Sempre pronto.<br>Sempre incompleto.</strong>
-        <p>Identidade e evolução documental sob proveniência Git do LABECO.</p>
-      </div>
-
-      <div class="sidebar-auth" id="sidebarAuth">
-        <!-- Renderizado dinamicamente -->
-      </div>
-    </div>
-  </aside>
-
-  <div class="mobile-scrim" id="mobile-scrim" onclick="toggleSidebar(false)"></div>
-
-  <!-- WORKSPACE PRINCIPAL -->
-  <div class="workspace">
-    <header class="topbar">
-      <button type="button" class="btn-menu" id="menuBtn" onclick="toggleSidebar()" aria-label="Alternar navegação">
-        ☰
-      </button>
-
-      <div class="crumb" id="topbarCrumb">
-        <span class="crumb-root">SisTer Git</span>
-        <span class="crumb-slash">/</span>
-        <strong id="crumbCurrent">Espaço Editorial</strong>
-      </div>
-
-      <div class="topbar-search">
-        <span class="search-icon">⌕</span>
-        <input type="search" id="globalSearch" placeholder="Buscar artigos, código, branches…" oninput="handleSearch(this.value)">
-      </div>
-
-      <div class="topbar-right">
-        <div class="top-status">
-          <span class="status-pulse"></span>
-          <span id="serviceState">LABECO Git</span>
-        </div>
-        <button type="button" class="btn-token-config" onclick="openAuthModal()" id="btnAuthTrigger" title="Configurar Token de Acesso">
-          🔒 Acesso
+      <div class="sidebar-action">
+        <button type="button" class="btn-sidebar-create" onclick="openNewProjectModal()">
+          <span>+</span> Novo Artigo / Projeto
         </button>
       </div>
-    </header>
 
-    <main id="app">
-      <div class="loading-state">Carregando ambiente SisTer Git…</div>
-    </main>
+      <div class="sidebar-bottom">
+        <div class="side-note">
+          <small>PRINCÍPIO DE DESENVOLVIMENTO</small>
+          <strong>Sempre pronto.<br>Sempre incompleto.</strong>
+          <p>Identidade e evolução documental sob proveniência Git do LABECO.</p>
+        </div>
 
-    <footer class="app-footer">
-      <span>SisTer Git Editorial · Módulo C++26 Nativo</span>
-      <em>Sempre pronto. Sempre incompleto! · Laboratório de Ecologia e Conservação (LABECO)</em>
-    </footer>
+        <div class="sidebar-auth" id="sidebarAuth">
+          <!-- Renderizado dinamicamente -->
+        </div>
+      </div>
+    </aside>
+
+    <div class="mobile-scrim" id="mobile-scrim" onclick="toggleSidebar(false)"></div>
+
+    <!-- WORKSPACE PRINCIPAL -->
+    <div class="workspace">
+      <header class="topbar">
+        <button type="button" class="btn-menu" id="menuBtn" onclick="toggleSidebar()" aria-label="Alternar navegação">
+          ☰
+        </button>
+
+        <div class="crumb" id="topbarCrumb">
+          <span class="crumb-root">SisTer Git</span>
+          <span class="crumb-slash">/</span>
+          <strong id="crumbCurrent">Espaço Editorial</strong>
+        </div>
+
+        <div class="topbar-search">
+          <span class="search-icon">⌕</span>
+          <input type="search" id="globalSearch" placeholder="Buscar artigos, código, branches…"
+            oninput="handleSearch(this.value)">
+        </div>
+
+        <div class="topbar-right">
+          <div class="top-status">
+            <span class="status-pulse"></span>
+            <span id="serviceState">LABECO Git</span>
+          </div>
+          <button type="button" class="btn-token-config" onclick="openAuthModal()" id="btnAuthTrigger"
+            title="Configurar Token de Acesso">
+            🔒 Acesso
+          </button>
+        </div>
+      </header>
+
+      <main id="app">
+        <div class="loading-state">Carregando ambiente SisTer Git…</div>
+      </main>
+
+      <footer class="app-footer">
+        <span>SisTer Git Editorial · Módulo C++26 Nativo</span>
+        <em>Sempre pronto. Sempre incompleto! · Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)</em>
+      </footer>
+    </div>
   </div>
-</div>
 
-<!-- MODAL: NOVO ARTIGO / PROJETO -->
-<div id="modalNewProject" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalNewProjectTitle">
-  <section class="modal sm-card">
-    <div class="modal-head">
-      <div>
-        <span class="section-kicker">GOVERNANÇA EDITORIAL &amp; GIT</span>
-        <h2 id="modalNewProjectTitle">Novo Artigo ou Repositório</h2>
-      </div>
-      <button class="close-btn" onclick="closeModal('modalNewProject')" type="button" aria-label="Fechar">×</button>
-    </div>
-    <form id="formNewProject" onsubmit="handleCreateProject(event)">
-      <div class="modal-body-pad">
-        <label class="field-label">
-          <span>Tipo de Projeto</span>
-          <select id="newProjType" onchange="toggleProjectFields(this.value)">
-            <option value="editorial">📖 Artigo / Relatório Científico (Editorial)</option>
-            <option value="software">💻 Repositório de Software / Código</option>
-          </select>
-        </label>
-
-        <label class="field-label">
-          <span>Identificador Git (slug único) <small>Obrigatório · sem espaços</small></span>
-          <input type="text" id="newProjName" required placeholder="ex: ecologia-campos-sulinos" pattern="[a-zA-Z0-9_\-\.]+">
-        </label>
-
-        <div id="editorialSpecificFields">
-          <label class="field-label">
-            <span>Título do Documento / Artigo <small>Obrigatório</small></span>
-            <input type="text" id="newProjTitle" placeholder="Ex.: Dinâmica Temporal e Conservação dos Campos Nativos">
-          </label>
-          <label class="field-label">
-            <span>Autor Principal <small>Opcional</small></span>
-            <input type="text" id="newProjAuthor" placeholder="Ex.: Dra. Ana Pereira">
-          </label>
+  <!-- MODAL: NOVO ARTIGO / PROJETO -->
+  <div id="modalNewProject" class="modal-backdrop hidden" role="dialog" aria-modal="true"
+    aria-labelledby="modalNewProjectTitle">
+    <section class="modal sm-card">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">GOVERNANÇA EDITORIAL &amp; GIT</span>
+          <h2 id="modalNewProjectTitle">Novo Artigo ou Repositório</h2>
         </div>
-
-        <label class="field-label">
-          <span>Descrição ou Resumo Inicial</span>
-          <textarea id="newProjDesc" rows="2" placeholder="Breve síntese do escopo ou objetivo."></textarea>
-        </label>
-
-        <label class="field-label">
-          <span>Visibilidade</span>
-          <select id="newProjVisibility">
-            <option value="public">🌐 Público (acesso livre à leitura)</option>
-            <option value="private">🔒 Privado (somente pesquisadores com token)</option>
-          </select>
-        </label>
-
-        <div id="newProjFeedback" class="form-feedback hidden"></div>
+        <button class="close-btn" onclick="closeModal('modalNewProject')" type="button" aria-label="Fechar">×</button>
       </div>
-      <div class="modal-foot-actions">
-        <button type="button" class="btn-cancel" onclick="closeModal('modalNewProject')">Cancelar</button>
-        <button type="submit" class="btn-primary" id="btnSubmitProject">Criar Projeto Git ✓</button>
-      </div>
-    </form>
-  </section>
-</div>
-
-<!-- MODAL: EMITIR PARECER EDITORIAL -->
-<div id="modalNewReview" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalNewReviewTitle">
-  <section class="modal sm-card">
-    <div class="modal-head">
-      <div>
-        <span class="section-kicker">AVALIAÇÃO POR PARES · PROVENIÊNCIA</span>
-        <h2 id="modalNewReviewTitle">Emitir Parecer Editorial</h2>
-      </div>
-      <button class="close-btn" onclick="closeModal('modalNewReview')" type="button" aria-label="Fechar">×</button>
-    </div>
-    <form id="formNewReview" onsubmit="handleCreateReview(event)">
-      <input type="hidden" id="reviewRepoName">
-      <div class="modal-body-pad">
-        <label class="field-label">
-          <span>Nome do Parecerista / Avaliador <small>Obrigatório</small></span>
-          <input type="text" id="reviewReviewer" required placeholder="Ex.: Prof. Carlos Eduardo (UFSM)">
-        </label>
-
-        <label class="field-label">
-          <span>Recomendação Editorial</span>
-          <select id="reviewRecommendation" required>
-            <option value="accept">✓ Aceito sem alterações (Aprovado)</option>
-            <option value="accept_with_revisions" selected>✎ Aceito com revisões requeridas</option>
-            <option value="revise_and_resubmit">↻ Revisar e submeter a nova rodada</option>
-            <option value="reject">✗ Rejeitar</option>
-          </select>
-        </label>
-
-        <label class="field-label">
-          <span>Síntese do Parecer &amp; Recomendações <small>Obrigatório</small></span>
-          <textarea id="reviewSummary" required rows="5" placeholder="Fundamente seus apontamentos técnicos, metodológicos e epistemológicos..."></textarea>
-        </label>
-
-        <label class="field-label">
-          <span>Resposta do Autor / Resolução <small>Opcional (se já incorporado)</small></span>
-          <textarea id="reviewAuthorResp" rows="2" placeholder="Descreva como os apontamentos foram atendidos nas revisões do manuscrito."></textarea>
-        </label>
-
-        <div id="reviewFeedback" class="form-feedback hidden"></div>
-      </div>
-      <div class="modal-foot-actions">
-        <button type="button" class="btn-cancel" onclick="closeModal('modalNewReview')">Cancelar</button>
-        <button type="submit" class="btn-primary" id="btnSubmitReview">Registrar Parecer no Git ✓</button>
-      </div>
-    </form>
-  </section>
-</div>
-
-<!-- MODAL: PUBLICAR NOVA EDIÇÃO -->
-<div id="modalPublish" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalPublishTitle">
-  <section class="modal sm-card">
-    <div class="modal-head">
-      <div>
-        <span class="section-kicker">HOMOLOGAÇÃO &amp; TAG ANOTADA</span>
-        <h2 id="modalPublishTitle">Publicar Edição Imutável</h2>
-      </div>
-      <button class="close-btn" onclick="closeModal('modalPublish')" type="button" aria-label="Fechar">×</button>
-    </div>
-    <form id="formPublish" onsubmit="handlePublishEdition(event)">
-      <input type="hidden" id="publishRepoName">
-      <div class="modal-body-pad">
-        <label class="field-label">
-          <span>Tag Editorial Git <small>Padrão: ed/vX.Y</small></span>
-          <input type="text" id="publishTag" required placeholder="Ex.: ed/v1.0-publicado" pattern="ed\/[a-zA-Z0-9_\-\.]+">
-        </label>
-
-        <label class="field-label">
-          <span>Título da Edição</span>
-          <input type="text" id="publishTitle" required placeholder="Ex.: Primeira Edição Homologada">
-        </label>
-
-        <label class="field-label">
-          <span>Notas de Lançamento / Proveniência / DOI</span>
-          <textarea id="publishNotes" required rows="3" placeholder="Resumo dos avanços incorporados, DOI atribuído e comprovação de integridade."></textarea>
-        </label>
-
-        <div class="notice-box">
-          <strong>Preservação Imutável no Git</strong>
-          <p>A publicação cria uma Git tag anotada e criptograficamente rastreável no repositório bare, atualizando o estágio documental para <em>published</em>.</p>
-        </div>
-
-        <div id="publishFeedback" class="form-feedback hidden"></div>
-      </div>
-      <div class="modal-foot-actions">
-        <button type="button" class="btn-cancel" onclick="closeModal('modalPublish')">Cancelar</button>
-        <button type="submit" class="btn-primary" id="btnSubmitPublish">Publicar Edição 🚀</button>
-      </div>
-    </form>
-  </section>
-</div>
-
-<!-- MODAL: AUTENTICAÇÃO INSTITUCIONAL & TOKEN -->
-<div id="modalAuth" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalAuthTitle">
-  <section class="modal sm-card">
-    <div class="modal-head">
-      <div>
-        <span class="section-kicker">ACESSO INSTITUCIONAL EMBRAPA · LABECO</span>
-        <h2 id="modalAuthTitle">Autenticação SisTer Git</h2>
-      </div>
-      <button class="close-btn" onclick="closeModal('modalAuth')" type="button" aria-label="Fechar">×</button>
-    </div>
-
-    <!-- TABS DE NAVEGAÇÃO -->
-    <div class="auth-tabs-nav" id="authTabsNav">
-      <button type="button" class="auth-tab-btn active" id="tabBtnEmail" onclick="switchAuthTab('email')">E-mail Institucional</button>
-      <button type="button" class="auth-tab-btn" id="tabBtnToken" onclick="switchAuthTab('token')">Token de Laboratório</button>
-    </div>
-
-    <!-- PAINEL 1: CÓDIGO POR EMAIL (PASSWORDLESS OTP) -->
-    <div id="panelAuthEmail" class="auth-tab-panel">
-      <!-- ETAPA 1: DIGITAR EMAIL -->
-      <form id="formAuthStep1" onsubmit="handleRequestOtp(event)">
+      <form id="formNewProject" onsubmit="handleCreateProject(event)">
         <div class="modal-body-pad">
-          <p class="auth-intro">
-            Acesso para pesquisadores e editores via código numérico temporário enviado ao seu e-mail institucional.
+          <label class="field-label">
+            <span>Tipo de Projeto</span>
+            <select id="newProjType" onchange="toggleProjectFields(this.value)">
+              <option value="editorial">📖 Artigo / Relatório Científico (Editorial)</option>
+              <option value="software">💻 Repositório de Software / Código</option>
+            </select>
+          </label>
+
+          <label class="field-label">
+            <span>Identificador Git (slug único) <small>Obrigatório · sem espaços</small></span>
+            <input type="text" id="newProjName" required placeholder="ex: ecologia-campos-sulinos"
+              pattern="[a-zA-Z0-9_\-\.]+">
+          </label>
+
+          <div id="editorialSpecificFields">
+            <label class="field-label">
+              <span>Título do Documento / Artigo <small>Obrigatório</small></span>
+              <input type="text" id="newProjTitle"
+                placeholder="Ex.: Dinâmica Temporal e Conservação dos Campos Nativos">
+            </label>
+            <label class="field-label">
+              <span>Autor Principal <small>Opcional</small></span>
+              <input type="text" id="newProjAuthor" placeholder="Ex.: Dra. Ana Pereira">
+            </label>
+          </div>
+
+          <label class="field-label">
+            <span>Descrição ou Resumo Inicial</span>
+            <textarea id="newProjDesc" rows="2" placeholder="Breve síntese do escopo ou objetivo."></textarea>
+          </label>
+
+          <label class="field-label">
+            <span>Visibilidade</span>
+            <select id="newProjVisibility">
+              <option value="public">🌐 Público (acesso livre à leitura)</option>
+              <option value="private">🔒 Privado (somente pesquisadores com token)</option>
+            </select>
+          </label>
+
+          <div id="newProjFeedback" class="form-feedback hidden"></div>
+        </div>
+        <div class="modal-foot-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modalNewProject')">Cancelar</button>
+          <button type="submit" class="btn-primary" id="btnSubmitProject">Criar Projeto Git ✓</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- MODAL: EMITIR PARECER EDITORIAL -->
+  <div id="modalNewReview" class="modal-backdrop hidden" role="dialog" aria-modal="true"
+    aria-labelledby="modalNewReviewTitle">
+    <section class="modal sm-card">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">AVALIAÇÃO POR PARES · PROVENIÊNCIA</span>
+          <h2 id="modalNewReviewTitle">Emitir Parecer Editorial</h2>
+        </div>
+        <button class="close-btn" onclick="closeModal('modalNewReview')" type="button" aria-label="Fechar">×</button>
+      </div>
+      <form id="formNewReview" onsubmit="handleCreateReview(event)">
+        <input type="hidden" id="reviewRepoName">
+        <div class="modal-body-pad">
+          <label class="field-label">
+            <span>Nome do Parecerista / Avaliador <small>Obrigatório</small></span>
+            <input type="text" id="reviewReviewer" required placeholder="Ex.: Prof. Carlos Eduardo (UFSM)">
+          </label>
+
+          <label class="field-label">
+            <span>Recomendação Editorial</span>
+            <select id="reviewRecommendation" required>
+              <option value="accept">✓ Aceito sem alterações (Aprovado)</option>
+              <option value="accept_with_revisions" selected>✎ Aceito com revisões requeridas</option>
+              <option value="revise_and_resubmit">↻ Revisar e submeter a nova rodada</option>
+              <option value="reject">✗ Rejeitar</option>
+            </select>
+          </label>
+
+          <label class="field-label">
+            <span>Síntese do Parecer &amp; Recomendações <small>Obrigatório</small></span>
+            <textarea id="reviewSummary" required rows="5"
+              placeholder="Fundamente seus apontamentos técnicos, metodológicos e epistemológicos..."></textarea>
+          </label>
+
+          <label class="field-label">
+            <span>Resposta do Autor / Resolução <small>Opcional (se já incorporado)</small></span>
+            <textarea id="reviewAuthorResp" rows="2"
+              placeholder="Descreva como os apontamentos foram atendidos nas revisões do manuscrito."></textarea>
+          </label>
+
+          <div id="reviewFeedback" class="form-feedback hidden"></div>
+        </div>
+        <div class="modal-foot-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modalNewReview')">Cancelar</button>
+          <button type="submit" class="btn-primary" id="btnSubmitReview">Registrar Parecer no Git ✓</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- MODAL: PUBLICAR NOVA EDIÇÃO -->
+  <div id="modalPublish" class="modal-backdrop hidden" role="dialog" aria-modal="true"
+    aria-labelledby="modalPublishTitle">
+    <section class="modal sm-card">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">HOMOLOGAÇÃO &amp; TAG ANOTADA</span>
+          <h2 id="modalPublishTitle">Publicar Edição Imutável</h2>
+        </div>
+        <button class="close-btn" onclick="closeModal('modalPublish')" type="button" aria-label="Fechar">×</button>
+      </div>
+      <form id="formPublish" onsubmit="handlePublishEdition(event)">
+        <input type="hidden" id="publishRepoName">
+        <div class="modal-body-pad">
+          <label class="field-label">
+            <span>Tag Editorial Git <small>Padrão: ed/vX.Y</small></span>
+            <input type="text" id="publishTag" required placeholder="Ex.: ed/v1.0-publicado"
+              pattern="ed\/[a-zA-Z0-9_\-\.]+">
+          </label>
+
+          <label class="field-label">
+            <span>Título da Edição</span>
+            <input type="text" id="publishTitle" required placeholder="Ex.: Primeira Edição Homologada">
+          </label>
+
+          <label class="field-label">
+            <span>Notas de Lançamento / Proveniência / DOI</span>
+            <textarea id="publishNotes" required rows="3"
+              placeholder="Resumo dos avanços incorporados, DOI atribuído e comprovação de integridade."></textarea>
+          </label>
+
+          <div class="notice-box">
+            <strong>Preservação Imutável no Git</strong>
+            <p>A publicação cria uma Git tag anotada e criptograficamente rastreável no repositório bare, atualizando o
+              estágio documental para <em>published</em>.</p>
+          </div>
+
+          <div id="publishFeedback" class="form-feedback hidden"></div>
+        </div>
+        <div class="modal-foot-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modalPublish')">Cancelar</button>
+          <button type="submit" class="btn-primary" id="btnSubmitPublish">Publicar Edição 🚀</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- MODAL: AUTENTICAÇÃO INSTITUCIONAL & TOKEN -->
+  <div id="modalAuth" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalAuthTitle">
+    <section class="modal sm-card">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">ACESSO INSTITUCIONAL EMBRAPA · LABECO</span>
+          <h2 id="modalAuthTitle">Autenticação SisTer Git</h2>
+        </div>
+        <button class="close-btn" onclick="closeModal('modalAuth')" type="button" aria-label="Fechar">×</button>
+      </div>
+
+      <!-- TABS DE NAVEGAÇÃO -->
+      <div class="auth-tabs-nav" id="authTabsNav">
+        <button type="button" class="auth-tab-btn active" id="tabBtnEmail" onclick="switchAuthTab('email')">E-mail
+          Institucional</button>
+        <button type="button" class="auth-tab-btn" id="tabBtnToken" onclick="switchAuthTab('token')">Token de
+          Laboratório</button>
+      </div>
+
+      <!-- PAINEL 1: CÓDIGO POR EMAIL (PASSWORDLESS OTP) -->
+      <div id="panelAuthEmail" class="auth-tab-panel">
+        <!-- ETAPA 1: DIGITAR EMAIL -->
+        <form id="formAuthStep1" onsubmit="handleRequestOtp(event)">
+          <div class="modal-body-pad">
+            <p class="auth-intro">
+              Acesso para pesquisadores e editores via código numérico temporário enviado ao seu e-mail institucional.
+            </p>
+            <label class="field-label">
+              <span>E-mail Institucional Embrapa</span>
+              <input type="email" id="authEmailInput" placeholder="nome.sobrenome@embrapa.br" required
+                autocomplete="email">
+              <small>Você receberá um código de 6 dígitos válido por 10 minutos para autenticar.</small>
+            </label>
+            <div id="authEmailFeedback" class="form-feedback hidden"></div>
+          </div>
+          <div class="modal-foot-actions">
+            <button type="button" class="btn-cancel" onclick="closeModal('modalAuth')">Cancelar</button>
+            <button type="submit" id="btnRequestOtp" class="btn-primary">Enviar Código por E-mail ✉</button>
+          </div>
+        </form>
+
+        <!-- ETAPA 2: DIGITAR CÓDIGO -->
+        <form id="formAuthStep2" class="hidden" onsubmit="handleVerifyOtp(event)">
+          <div class="modal-body-pad">
+            <div class="otp-banner">
+              <span>Código de 6 dígitos enviado para:</span>
+              <strong id="authTargetEmailDisplay">pesquisador@embrapa.br</strong>
+            </div>
+            <label class="field-label" style="text-align: center;">
+              <span>Código de Verificação</span>
+              <input type="text" id="authCodeInput" class="otp-code-input" maxlength="6" pattern="[0-9]{6}"
+                inputmode="numeric" placeholder="000000" required autocomplete="one-time-code">
+              <small>Insira os 6 números recebidos em sua caixa de entrada.</small>
+            </label>
+            <div id="authCodeFeedback" class="form-feedback hidden"></div>
+            <div style="text-align: center; margin-top: 6px;">
+              <button type="button" class="btn-text-link" onclick="switchAuthStep(1)">← Alterar e-mail ou reenviar
+                código</button>
+            </div>
+          </div>
+          <div class="modal-foot-actions">
+            <button type="button" class="btn-cancel" onclick="switchAuthStep(1)">Voltar</button>
+            <button type="submit" id="btnVerifyOtp" class="btn-primary">Confirmar e Entrar ✓</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- PAINEL 2: TOKEN MESTRE (BEARER) -->
+      <div id="panelAuthToken" class="auth-tab-panel hidden">
+        <form id="formAuthToken" onsubmit="handleSaveToken(event)">
+          <div class="modal-body-pad">
+            <p class="auth-intro">
+              Autenticação via chave estática (Bearer Token) configurada no servidor (para scripts de sincronização ou
+              administração direta).
+            </p>
+            <label class="field-label">
+              <span>Token de Acesso (Bearer Token)</span>
+              <input type="password" id="authTokenInput" placeholder="Cole o token do LABECO aqui">
+            </label>
+            <div id="authModalFeedback" class="form-feedback hidden"></div>
+          </div>
+          <div class="modal-foot-actions">
+            <button type="button" class="btn-cancel" onclick="handleClearToken()">Remover Token</button>
+            <button type="submit" class="btn-primary">Salvar e Conectar ✓</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- PAINEL CONECTADO (quando o usuário já está logado) -->
+      <div id="panelAuthConnected" class="auth-tab-panel hidden">
+        <div class="modal-body-pad">
+          <div class="user-profile-card">
+            <div class="user-avatar-lg" id="authConnectedAvatar">JP</div>
+            <div class="user-profile-info">
+              <h3 id="authConnectedName">Pesquisador</h3>
+              <p id="authConnectedEmail">pesquisador@embrapa.br</p>
+              <span class="badge badge-primary" id="authConnectedRole">Pesquisador</span>
+            </div>
+          </div>
+          <p class="auth-intro" style="margin-top: 8px;">
+            Sua identidade institucional está vinculada aos commits editoriais e à governança científica no SisTer Git.
           </p>
-          <label class="field-label">
-            <span>E-mail Institucional Embrapa</span>
-            <input type="email" id="authEmailInput" placeholder="nome.sobrenome@embrapa.br" required autocomplete="email">
-            <small>Você receberá um código de 6 dígitos válido por 10 minutos para autenticar.</small>
-          </label>
-          <div id="authEmailFeedback" class="form-feedback hidden"></div>
-        </div>
-        <div class="modal-foot-actions">
-          <button type="button" class="btn-cancel" onclick="closeModal('modalAuth')">Cancelar</button>
-          <button type="submit" id="btnRequestOtp" class="btn-primary">Enviar Código por E-mail ✉</button>
-        </div>
-      </form>
-
-      <!-- ETAPA 2: DIGITAR CÓDIGO -->
-      <form id="formAuthStep2" class="hidden" onsubmit="handleVerifyOtp(event)">
-        <div class="modal-body-pad">
-          <div class="otp-banner">
-            <span>Código de 6 dígitos enviado para:</span>
-            <strong id="authTargetEmailDisplay">pesquisador@embrapa.br</strong>
-          </div>
-          <label class="field-label" style="text-align: center;">
-            <span>Código de Verificação</span>
-            <input type="text" id="authCodeInput" class="otp-code-input" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="000000" required autocomplete="one-time-code">
-            <small>Insira os 6 números recebidos em sua caixa de entrada.</small>
-          </label>
-          <div id="authCodeFeedback" class="form-feedback hidden"></div>
-          <div style="text-align: center; margin-top: 6px;">
-            <button type="button" class="btn-text-link" onclick="switchAuthStep(1)">← Alterar e-mail ou reenviar código</button>
+          <div id="adminUserManagementBox" class="hidden"
+            style="margin-top: 10px; padding: 12px; background: #eaf3fa; border-radius: 8px; border: 1px solid #c2dcf0;">
+            <strong style="font-size: 0.82rem; color: var(--navy); display: block; margin-bottom: 4px;">Painel de
+              Administração</strong>
+            <p style="font-size: 0.78rem; margin: 0 0 8px; color: var(--muted);">Gerencie a lista de pesquisadores e
+              revisores autorizados a acessar o sistema.</p>
+            <button type="button" class="btn-primary" style="font-size: 0.8rem; padding: 6px 12px;"
+              onclick="openUsersModal()">👥 Gerenciar Pesquisadores Autorizados</button>
           </div>
         </div>
         <div class="modal-foot-actions">
-          <button type="button" class="btn-cancel" onclick="switchAuthStep(1)">Voltar</button>
-          <button type="submit" id="btnVerifyOtp" class="btn-primary">Confirmar e Entrar ✓</button>
+          <button type="button" class="btn-cancel" onclick="closeModal('modalAuth')">Fechar</button>
+          <button type="button" class="btn-primary" style="background: #cf222e;" onclick="logout()">Encerrar Sessão
+            (Sair)</button>
         </div>
-      </form>
-    </div>
+      </div>
+    </section>
+  </div>
 
-    <!-- PAINEL 2: TOKEN MESTRE (BEARER) -->
-    <div id="panelAuthToken" class="auth-tab-panel hidden">
-      <form id="formAuthToken" onsubmit="handleSaveToken(event)">
-        <div class="modal-body-pad">
-          <p class="auth-intro">
-            Autenticação via chave estática (Bearer Token) configurada no servidor (para scripts de sincronização ou administração direta).
-          </p>
-          <label class="field-label">
-            <span>Token de Acesso (Bearer Token)</span>
-            <input type="password" id="authTokenInput" placeholder="Cole o token do LABECO aqui">
-          </label>
-          <div id="authModalFeedback" class="form-feedback hidden"></div>
+  <!-- MODAL: GESTÃO DE USUÁRIOS / PESQUISADORES AUTORIZADOS -->
+  <div id="modalUsers" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalUsersTitle">
+    <section class="modal sm-card" style="width: min(720px, 100%);">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">CONTROLE DE ACESSO · ADMINISTRAÇÃO</span>
+          <h2 id="modalUsersTitle">Pesquisadores &amp; Usuários Autorizados</h2>
         </div>
-        <div class="modal-foot-actions">
-          <button type="button" class="btn-cancel" onclick="handleClearToken()">Remover Token</button>
-          <button type="submit" class="btn-primary">Salvar e Conectar ✓</button>
-        </div>
-      </form>
-    </div>
-
-    <!-- PAINEL CONECTADO (quando o usuário já está logado) -->
-    <div id="panelAuthConnected" class="auth-tab-panel hidden">
+        <button class="close-btn" onclick="closeModal('modalUsers')" type="button" aria-label="Fechar">×</button>
+      </div>
       <div class="modal-body-pad">
-        <div class="user-profile-card">
-          <div class="user-avatar-lg" id="authConnectedAvatar">JP</div>
-          <div class="user-profile-info">
-            <h3 id="authConnectedName">Pesquisador</h3>
-            <p id="authConnectedEmail">pesquisador@embrapa.br</p>
-            <span class="badge badge-primary" id="authConnectedRole">Pesquisador</span>
-          </div>
-        </div>
-        <p class="auth-intro" style="margin-top: 8px;">
-          Sua identidade institucional está vinculada aos commits editoriais e à governança científica no SisTer Git.
+        <p class="auth-intro">
+          Apenas usuários previamente cadastrados nesta lista têm permissão para solicitar código de acesso e logar no
+          SisTer Git.
         </p>
-        <div id="adminUserManagementBox" class="hidden" style="margin-top: 10px; padding: 12px; background: #eaf3fa; border-radius: 8px; border: 1px solid #c2dcf0;">
-          <strong style="font-size: 0.82rem; color: var(--navy); display: block; margin-bottom: 4px;">Painel de Administração</strong>
-          <p style="font-size: 0.78rem; margin: 0 0 8px; color: var(--muted);">Gerencie a lista de pesquisadores e revisores autorizados a acessar o sistema.</p>
-          <button type="button" class="btn-primary" style="font-size: 0.8rem; padding: 6px 12px;" onclick="openUsersModal()">👥 Gerenciar Pesquisadores Autorizados</button>
+
+        <!-- Formulário de cadastro de novo usuário -->
+        <form id="formAddUser" onsubmit="handleAddAllowedUser(event)"
+          style="display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; align-items: flex-end; background: var(--surface-alt); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--line);">
+          <label class="field-label" style="margin: 0;">
+            <span>E-mail Embrapa</span>
+            <input type="email" id="newUserEmail" placeholder="nome@embrapa.br" required style="padding: 6px 10px;">
+          </label>
+          <label class="field-label" style="margin: 0;">
+            <span>Nome Completo</span>
+            <input type="text" id="newUserName" placeholder="Dr. Nome Sobrenome" required style="padding: 6px 10px;">
+          </label>
+          <label class="field-label" style="margin: 0;">
+            <span>Papel</span>
+            <select id="newUserRole" style="padding: 6px 10px;">
+              <option value="researcher">Pesquisador</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </label>
+          <button type="submit" class="btn-primary" style="padding: 7px 14px; height: 35px;">+ Autorizar</button>
+        </form>
+        <div id="addUserFeedback" class="form-feedback hidden"></div>
+
+        <!-- Lista de usuários cadastrados -->
+        <div style="margin-top: 10px;">
+          <span
+            style="font-size: 0.76rem; font-weight: 700; color: var(--navy); text-transform: uppercase; letter-spacing: 0.08em;">Pesquisadores
+            Ativos</span>
+          <div id="allowedUsersList"
+            style="margin-top: 8px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-md);">
+            <div style="padding: 20px; text-align: center; color: var(--muted);">Carregando usuários...</div>
+          </div>
         </div>
       </div>
       <div class="modal-foot-actions">
-        <button type="button" class="btn-cancel" onclick="closeModal('modalAuth')">Fechar</button>
-        <button type="button" class="btn-primary" style="background: #cf222e;" onclick="logout()">Encerrar Sessão (Sair)</button>
+        <button type="button" class="btn-cancel" onclick="closeModal('modalUsers')">Fechar</button>
       </div>
-    </div>
-  </section>
-</div>
+    </section>
+  </div>
 
-<!-- MODAL: GESTÃO DE USUÁRIOS / PESQUISADORES AUTORIZADOS -->
-<div id="modalUsers" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalUsersTitle">
-  <section class="modal sm-card" style="width: min(720px, 100%);">
-    <div class="modal-head">
-      <div>
-        <span class="section-kicker">CONTROLE DE ACESSO · ADMINISTRAÇÃO</span>
-        <h2 id="modalUsersTitle">Pesquisadores &amp; Usuários Autorizados</h2>
-      </div>
-      <button class="close-btn" onclick="closeModal('modalUsers')" type="button" aria-label="Fechar">×</button>
-    </div>
-    <div class="modal-body-pad">
-      <p class="auth-intro">
-        Apenas usuários previamente cadastrados nesta lista têm permissão para solicitar código de acesso e logar no SisTer Git.
-      </p>
+  <!-- TOAST NOTIFICAÇÃO -->
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-      <!-- Formulário de cadastro de novo usuário -->
-      <form id="formAddUser" onsubmit="handleAddAllowedUser(event)" style="display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; align-items: flex-end; background: var(--surface-alt); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--line);">
-        <label class="field-label" style="margin: 0;">
-          <span>E-mail Embrapa</span>
-          <input type="email" id="newUserEmail" placeholder="nome@embrapa.br" required style="padding: 6px 10px;">
-        </label>
-        <label class="field-label" style="margin: 0;">
-          <span>Nome Completo</span>
-          <input type="text" id="newUserName" placeholder="Dr. Nome Sobrenome" required style="padding: 6px 10px;">
-        </label>
-        <label class="field-label" style="margin: 0;">
-          <span>Papel</span>
-          <select id="newUserRole" style="padding: 6px 10px;">
-            <option value="researcher">Pesquisador</option>
-            <option value="admin">Administrador</option>
-          </select>
-        </label>
-        <button type="submit" class="btn-primary" style="padding: 7px 14px; height: 35px;">+ Autorizar</button>
-      </form>
-      <div id="addUserFeedback" class="form-feedback hidden"></div>
-
-      <!-- Lista de usuários cadastrados -->
-      <div style="margin-top: 10px;">
-        <span style="font-size: 0.76rem; font-weight: 700; color: var(--navy); text-transform: uppercase; letter-spacing: 0.08em;">Pesquisadores Ativos</span>
-        <div id="allowedUsersList" style="margin-top: 8px; max-height: 260px; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-md);">
-          <div style="padding: 20px; text-align: center; color: var(--muted);">Carregando usuários...</div>
-        </div>
-      </div>
-    </div>
-    <div class="modal-foot-actions">
-      <button type="button" class="btn-cancel" onclick="closeModal('modalUsers')">Fechar</button>
-    </div>
-  </section>
-</div>
-
-<!-- TOAST NOTIFICAÇÃO -->
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
-
-<script src="/app.js" defer></script>
+  <script src="/app.js" defer></script>
 </body>
+
 </html>
