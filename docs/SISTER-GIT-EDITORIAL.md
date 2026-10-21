@@ -109,9 +109,27 @@ git --git-dir=/srv/git/SOFTWARE.git config sister.type software
 
 ---
 
-## 5. Integração com o SisTer Git Web
+## 5. Integração com o SisTer Git Web & Identidade MORFO
 
-1. **Badge `📖 Editorial`**: Exibido no card do repositório no dashboard inicial.
-2. **Aba "Editorial"**: Permite navegar entre o documento formatado, a árvore de decisões, os pareceres históricos e as edições publicadas.
-3. **Leitura Acadêmica**: Renderizador focado em legibilidade de textos longos com tipografia editorial.
-4. **Rastreabilidade**: Cada parecer ou decisão possui um link direto para o diff e o estado do repositório no momento da avaliação.
+1. **Identidade Visual MORFO**: Sidebar profunda (`#071e38` a `#0c2844`), acentos em azul celeste (`#2ea8e8`) e verde-azulado (`#087f8c`), tipografia moderna (*Plus Jakarta Sans*, *Inter*, *JetBrains Mono*).
+2. **Espaço de Trabalho Dual**:
+   - **Espaço Editorial**: Dashboard dedicado, cards de artigos com badges de estágio (`draft`, `in_review`, `published`), leitor acadêmico, editor split com preview em tempo real e timeline de pareceres.
+   - **Espaço Repositórios**: Gestão de código-fonte, navegação na árvore de arquivos, histórico de commits, tags/branches e visualizador de diffs estilo GitHub.
+3. **Plumbing Git no Backend C++26**: Operações de escrita atômica em repositórios bare sem necessidade de working tree (usando `hash-object`, temporary `GIT_INDEX_FILE`, `write-tree`, `commit-tree` e `update-ref`).
+4. **Sem comandos Git no navegador**: O usuário realiza todo o ciclo editorial (escrever, salvar versões, emitir pareceres e publicar) pela interface web.
+
+---
+
+## 6. Endpoints Interativos da API C++26
+
+| Método | Rota | Descrição |
+| :--- | :--- | :--- |
+| `POST` | `/api/v1/repos` | Inicializa repositório bare com manifesto e manuscrito modelo |
+| `POST` | `/api/v1/repos/{name}/editorial/save` | Salva nova versão de manuscrito criando commit no Git |
+| `POST` | `/api/v1/repos/{name}/editorial/review` | Registra parecer editorial em `.sister-editorial.json` |
+| `POST` | `/api/v1/repos/{name}/editorial/publish` | Cria tag anotada imutável `ed/*` e avança estágio para `published` |
+| `GET` | `/api/v1/repos/{name}/editorial` | Retorna metadados editoriais, manifesto, pareceres e tags |
+
+---
+
+*Sempre pronto. Sempre incompleto!*

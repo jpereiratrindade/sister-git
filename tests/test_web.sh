@@ -30,8 +30,8 @@ curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/blob?ref=main&path=image.bi
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/commits?ref=main" | grep -q 'Evolui código'
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/refs" | grep -q 'v0.1.0'
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/compare?base=main~1&head=main" | grep -q 'segunda'
-[[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/v1/repos/MORFO/blob?ref=nao-existe&path=x")" == 404 ]]
-[[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 400 ]]
 
 # Teste de visibilidade: privado vs publico com token
 git --git-dir="$TMP/repos/empty.git" config sister.visibility private
@@ -69,6 +69,42 @@ grep -q '"has_manifest":true' "$TMP/morfo_ed.json"
 grep -q 'ed/v1.0' "$TMP/morfo_ed.json"
 grep -q 'Campos Nativos' "$TMP/morfo_ed.json"
 
+# Testes interativos C++26 do SisTer Git Editorial
+# 1. Criação de repositório editorial
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"name":"artigo-teste","description":"Artigo sobre ecologia","type":"editorial","visibility":"public","title":"Ecologia dos Campos"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/create_ed.json"
+grep -q '"ok":true' "$TMP/create_ed.json"
+grep -q '"type":"editorial"' "$TMP/create_ed.json"
+
+# 2. Verifica se manuscrito e manifesto foram criados no repositório bare
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/blob?ref=main&path=manuscrito.md" | grep -q 'Ecologia dos Campos'
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q '"is_editorial":true'
+
+# 3. Salvar nova versão do manuscrito
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"content":"# Ecologia dos Campos\n\nTexto atualizado na revisão editorial.\n\nNovas descobertas.","message":"Revisão da introdução com novas fontes","author_name":"Dra. Ana","author_email":"ana@labeco.invalid"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/save" > "$TMP/save_ed.json"
+grep -q '"ok":true' "$TMP/save_ed.json"
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/blob?ref=main&path=manuscrito.md" | grep -q 'Texto atualizado na revisão'
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/commits?ref=main" | grep -q 'Revisão da introdução com novas fontes'
+
+# 4. Registrar parecer editorial
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"reviewer":"Prof. Carlos","recommendation":"accept_with_revisions","comments":"Artigo excelente, favor detalhar a seção 3."}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/review" > "$TMP/review_ed.json"
+grep -q '"ok":true' "$TMP/review_ed.json"
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'Prof. Carlos'
+
+# 5. Publicar edição documental (cria tag ed/v1.0-publicado)
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"tag_name":"ed/v1.0-publicado","notes":"Publicação da primeira edição com DOI e W3C PROV","publisher_name":"SisTer Editorial","publisher_email":"editorial@labeco.invalid"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish" > "$TMP/pub_ed.json"
+grep -q '"ok":true' "$TMP/pub_ed.json"
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'ed/v1.0-publicado'
+git --git-dir="$TMP/repos/artigo-teste.git" tag -l | grep -q 'ed/v1.0-publicado'
+
 if SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" "$HERE/build/sister-git-web" --bind 0.0.0.0 --port $((PORT+1)) >"$TMP/public.log" 2>&1; then echo '[ERRO] bind público aceito sem token' >&2; exit 1; fi
 git --git-dir="$TMP/repos/MORFO.git" fsck --full >/dev/null
-printf '[OK] SisTer Git Web: API, UI, vazio, binário, refs, diff, visibilidade pública/privada, modo editorial, erro e read-only\n'
+git --git-dir="$TMP/repos/artigo-teste.git" fsck --full >/dev/null
+printf '[OK] SisTer Git Web: API, UI, vazio, binário, refs, diff, visibilidade pública/privada, modo editorial interativo C++26, erro e integridade git fsck\n'

@@ -1,25 +1,84 @@
+// SisTer Git Web — Espaço Editorial C++26 & Repositórios Git
+// Identidade Visual MORFO · Preservação e Proveniência Documental
+
 const app = document.querySelector('#app');
-const topbarAuth = document.querySelector('#topbarAuth');
+const sidebarAuth = document.querySelector('#sidebarAuth');
+const crumbCurrent = document.querySelector('#crumbCurrent');
+const globalSearch = document.querySelector('#globalSearch');
+
+let allReposCache = [];
+let currentWorkspace = 'editorial'; // 'editorial' | 'repos' | 'infra'
+
+// ============================================================================
+// TOKEN & AUTHENTICATION
+// ============================================================================
 
 const getToken = () => localStorage.getItem('sister_token') || '';
-const setToken = t => t ? localStorage.setItem('sister_token', t) : localStorage.removeItem('sister_token');
+const setToken = t => t ? localStorage.setItem('sister_token', t.trim()) : localStorage.removeItem('sister_token');
 
-const api = async path => {
-  const headers = {};
+const api = async (path, options = {}) => {
+  const headers = options.headers || {};
   const token = getToken();
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  const r = await fetch(path, { headers });
+  if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(options.body);
+  }
+  options.headers = headers;
+
+  const r = await fetch(path, options);
   if (!r.ok) {
     if (r.status === 401 && token) {
       setToken('');
-      updateTopAuth();
-      throw Error('Sessão expirada ou token inválido. Por favor, autentique-se novamente.');
+      updateAuthStatus();
+      throw Error('Token inválido ou não autorizado pelo servidor.');
     }
-    let e = await r.json().catch(() => ({ error: r.statusText }));
-    throw Error(e.error || 'Erro na requisição');
+    const err = await r.json().catch(() => ({ error: r.statusText }));
+    throw Error(err.error || `Erro HTTP ${r.status}`);
   }
   return r.json();
 };
+
+const apiPost = (path, data) => api(path, { method: 'POST', body: data });
+
+async function updateAuthStatus() {
+  if (!sidebarAuth) return;
+  try {
+    const s = await api('/api/v1/auth/status').catch(() => ({ authenticated: false, auth_required: false }));
+    if (s.authenticated) {
+      sidebarAuth.innerHTML = `
+        <div class="auth-badge-status" title="Sessão autenticada no LABECO">
+          <span class="dot-auth"></span>
+          <span>Pesquisador</span>
+        </div>
+        <button type="button" class="btn-auth-action" onclick="logout()" title="Encerrar sessão autenticada">Sair</button>
+      `;
+    } else {
+      sidebarAuth.innerHTML = `
+        <div class="auth-badge-status" title="Acesso público somente leitura">
+          <span class="dot-anon"></span>
+          <span>Público</span>
+        </div>
+        <button type="button" class="btn-auth-action" onclick="openAuthModal()" title="Autenticar como pesquisador">Entrar</button>
+      `;
+    }
+  } catch (_) {
+    sidebarAuth.innerHTML = `
+      <div class="auth-badge-status"><span class="dot-anon"></span><span>Público</span></div>
+    `;
+  }
+}
+
+window.logout = function() {
+  setToken('');
+  showToast('Sessão encerrada.');
+  updateAuthStatus();
+  render();
+};
+
+// ============================================================================
+// UTILITIES & MARKDOWN RENDERER
+// ============================================================================
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -32,7 +91,7 @@ const fmt = b => {
   return `${(b / 1048576).toFixed(1)} MiB`;
 };
 
-const date = s => {
+const formatDate = s => {
   if (!s) return '—';
   try {
     const d = new Date(s);
@@ -50,1055 +109,924 @@ const timeAgo = s => {
     if (diff < 3600) return `há ${Math.floor(diff / 60)} min`;
     if (diff < 86400) return `há ${Math.floor(diff / 3600)} h`;
     if (diff < 2592000) return `há ${Math.floor(diff / 86400)} d`;
-    return date(s);
+    return formatDate(s);
   } catch (_) {
-    return date(s);
+    return formatDate(s);
   }
 };
 
-async function updateTopAuth() {
-  if (!topbarAuth) return;
-  try {
-    const st = await api('/api/v1/auth/status').catch(() => ({ authenticated: false, auth_required: false }));
-    if (st.authenticated) {
-      topbarAuth.innerHTML = `
-        <div class="auth-box">
-          <span class="auth-pill-active"><i class="dot-online"></i> Pesquisador</span>
-          <button class="btn-top-auth btn-logout" onclick="logout()" title="Encerrar sessão autenticada">Sair</button>
-        </div>
-      `;
-    } else {
-      topbarAuth.innerHTML = `
-        <div class="auth-box">
-          <span class="auth-pill-anon"><i class="dot-anon"></i> Somente leitura</span>
-          <button class="btn-top-auth btn-login" onclick="login()" title="Autenticar como pesquisador do laboratório">Entrar</button>
-        </div>
-      `;
+function renderMarkdown(md) {
+  if (!md) return '';
+  let html = esc(md);
+
+  // Fenced Code blocks
+  html = html.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    return `<pre><code class="language-${lang}">${code}</code></pre>`;
+  });
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // Headings
+  html = html.replace(/^#### (.*$)/gim, '<h4>$1</h4>');
+  html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
+  html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
+  html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+
+  // Blockquotes
+  html = html.replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>');
+
+  // Horizontal Rule
+  html = html.replace(/^---$/gim, '<hr>');
+
+  // Bold & Italic
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+  // Unordered list items
+  html = html.replace(/^\s*-\s+(.*$)/gim, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>)/gim, '<ul>$1</ul>');
+  html = html.replace(/<\/ul>\s*<ul>/g, '');
+
+  // Line breaks & paragraphs
+  const paragraphs = html.split(/\n\n+/);
+  return paragraphs.map(p => {
+    p = p.trim();
+    if (!p) return '';
+    if (p.startsWith('<h') || p.startsWith('<pre') || p.startsWith('<blockquote') || p.startsWith('<ul') || p.startsWith('<hr')) {
+      return p;
     }
-  } catch (_) {
-    topbarAuth.innerHTML = `<div class="readonly"><i></i> Somente leitura</div>`;
+    return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+  }).join('\n');
+}
+
+function showToast(msg) {
+  const t = document.querySelector('#toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('visible');
+  setTimeout(() => t.classList.remove('visible'), 3200);
+}
+
+// ============================================================================
+// SIDEBAR & SHELL CONTROLS
+// ============================================================================
+
+window.toggleSidebar = function(force) {
+  const s = document.querySelector('#sidebar');
+  const scrim = document.querySelector('#mobile-scrim');
+  const open = force !== undefined ? force : !s.classList.contains('open');
+  s.classList.toggle('open', open);
+  scrim.classList.toggle('shown', open);
+};
+
+function updateNavHighlight(workspace) {
+  currentWorkspace = workspace;
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  if (workspace === 'editorial') {
+    document.querySelector('#nav-editorial')?.classList.add('active');
+    crumbCurrent.textContent = 'Espaço Editorial';
+  } else if (workspace === 'repos') {
+    document.querySelector('#nav-repos')?.classList.add('active');
+    crumbCurrent.textContent = 'Repositórios de Código';
+  } else if (workspace === 'infra') {
+    document.querySelector('#nav-infra')?.classList.add('active');
+    crumbCurrent.textContent = 'Infraestrutura & HA';
   }
 }
 
-window.login = async function() {
-  const token = prompt('Informe o Token de Acesso do LABECO (Bearer token):');
-  if (token === null) return;
-  const clean = token.trim();
-  if (!clean) {
-    alert('Token não pode ser vazio.');
-    return;
-  }
-  setToken(clean);
-  try {
-    const s = await api('/api/v1/auth/status');
-    if (s.auth_required && !s.authenticated) {
-      setToken('');
-      alert('Token inválido ou não autorizado pelo servidor.');
-      updateTopAuth();
-      return;
-    }
-    await updateTopAuth();
-    render();
-  } catch (err) {
-    setToken('');
-    alert('Erro ao autenticar: ' + err.message);
-    updateTopAuth();
-  }
-};
+// ============================================================================
+// ROUTING
+// ============================================================================
 
-window.logout = function() {
-  setToken('');
-  updateTopAuth();
-  render();
-};
-
-// Parse location hash: #/repo/tab?ref=foo&path=bar
-function parseHash() {
-  const raw = location.hash.replace(/^#\/?/, '');
-  const [routePart, queryPart] = raw.split('?');
-  const segments = (routePart || '').split('/').map(decodeURIComponent).filter(Boolean);
+function parseRoute() {
+  const hash = location.hash.replace(/^#\/?/, '');
+  const [routePart, queryPart] = hash.split('?');
+  const segs = (routePart || '').split('/').map(decodeURIComponent).filter(Boolean);
   const q = new URLSearchParams(queryPart || '');
+
+  // Cases:
+  // #/editorial -> { mode: 'editorial-dashboard' }
+  // #/editorial/:repo -> { mode: 'editorial-doc', repo: ':repo', tab: 'manuscript' }
+  // #/editorial/:repo/:tab -> { mode: 'editorial-doc', repo: ':repo', tab: ':tab' }
+  // #/infra -> { mode: 'infra' }
+  // #/ or empty -> { mode: 'repos-dashboard' }
+  // #/r/:repo/:tab or #/:repo/:tab -> { mode: 'repo-code', repo, tab, ref, path, base, head }
+
+  if (!segs.length || segs[0] === 'editorial' && segs.length === 1) {
+    if (segs[0] === 'editorial') return { mode: 'editorial-dashboard' };
+    return { mode: 'editorial-dashboard' }; // Default to editorial
+  }
+
+  if (segs[0] === 'editorial' && segs.length >= 2) {
+    return {
+      mode: 'editorial-doc',
+      repo: segs[1],
+      tab: segs[2] || 'manuscript'
+    };
+  }
+
+  if (segs[0] === 'repos') {
+    return { mode: 'repos-dashboard' };
+  }
+
+  if (segs[0] === 'infra') {
+    return { mode: 'infra' };
+  }
+
+  const repo = segs[0] === 'r' ? segs[1] : segs[0];
+  const tab = (segs[0] === 'r' ? segs[2] : segs[1]) || 'code';
+
   return {
-    repo: segments[0] || '',
-    tab: segments[1] || 'code',
-    legacyRest: segments.slice(2).join('/'),
+    mode: 'repo-code',
+    repo,
+    tab,
     ref: q.get('ref') || '',
-    path: q.get('path') || segments.slice(2).join('/'),
+    path: q.get('path') || '',
     base: q.get('base') || '',
     head: q.get('head') || ''
   };
 }
 
-function link(repo, tab = 'code', extra = {}) {
-  let u = `#/${encodeURIComponent(repo)}/${tab}`;
-  const q = new URLSearchParams();
-  if (extra.ref) q.set('ref', extra.ref);
-  if (extra.path) q.set('path', extra.path);
-  if (extra.base) q.set('base', extra.base);
-  if (extra.head) q.set('head', extra.head);
-  const qs = q.toString();
-  return qs ? `${u}?${qs}` : u;
-}
+async function render() {
+  const route = parseRoute();
+  toggleSidebar(false);
 
-window.copyText = function(text, btn) {
-  navigator.clipboard.writeText(text).then(() => {
-    const orig = btn.innerHTML;
-    btn.innerHTML = '✓ Copiado!';
-    btn.classList.add('copied');
-    setTimeout(() => {
-      btn.innerHTML = orig;
-      btn.classList.remove('copied');
-    }, 1600);
-  }).catch(() => {
-    alert('Não foi possível copiar automaticamente.');
-  });
-};
-
-function frame(repo, tab, content, ref = '', branches = [], tags = [], visibility = '', repoType = 'software') {
-  const branchCount = branches.length;
-  const tagCount = tags.length;
-
-  const visBadge = visibility === 'private'
-    ? `<span class="badge badge-private">🔒 Privado</span>`
-    : `<span class="badge badge-public">🌐 Público</span>`;
-
-  const typeBadge = repoType === 'editorial'
-    ? `<span class="badge badge-editorial">📖 Editorial</span>`
-    : '';
-
-  return `
-    <header class="repo-header">
-      <div class="repo-meta-bar">
-        <div class="repo-breadcrumb">
-          <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h6.5a.25.25 0 0 1 .25.25v1.5a.25.25 0 0 1-.25.25h-6.5a.25.25 0 0 1-.25-.25Z"></path></svg>
-          <a href="#/">repositórios</a>
-          <span class="sep">/</span>
-          <a class="repo-name" href="${link(repo, repoType === 'editorial' ? 'editorial' : 'code')}"><b>${esc(repo)}</b></a>
-          ${visBadge}
-          ${typeBadge}
-        </div>
-      </div>
-      <nav class="repo-tabs">
-        <a class="tab-item ${tab === 'code' ? 'active' : ''}" href="${link(repo, 'code', { ref })}">
-          <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.06 0 .75.75 0 0 1 0 1.06L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z"></path></svg>
-          <span>Código</span>
-        </a>
-        <a class="tab-item ${tab === 'editorial' ? 'active' : ''}" href="${link(repo, 'editorial')}">
-          <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.244a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.244a2.25 2.25 0 0 0-1.762.85.75.75 0 0 1-1.188 0A2.25 2.25 0 0 0 6.003 13H1.75a.75.75 0 0 1-.75-.75Zm7.25 9.99V3.25c0-.69-.56-1.25-1.25-1.25H1.5v9h4.503c.427 0 .83.155 1.247.74Zm1.5 0c.418-.585.82-.74 1.247-.74h4.503v-9h-4.244c-.69 0-1.25.56-1.25 1.25Z"></path></svg>
-          <span>Fluxo Editorial</span>
-        </a>
-        <a class="tab-item ${tab === 'commits' ? 'active' : ''}" href="${link(repo, 'commits', { ref })}">
-          <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path></svg>
-          <span>Commits</span>
-        </a>
-        <a class="tab-item ${tab === 'refs' ? 'active' : ''}" href="${link(repo, 'refs')}">
-          <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z"></path></svg>
-          <span>Branches & tags</span>
-          <span class="count-pill">${branchCount + tagCount}</span>
-        </a>
-        <a class="tab-item ${tab === 'compare' ? 'active' : ''}" href="${link(repo, 'compare')}">
-          <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M6.5 1.75a.75.75 0 0 0-1.5 0V3H3.75A1.75 1.75 0 0 0 2 4.75v6.5C2 12.216 2.784 13 3.75 13H5v1.25a.75.75 0 0 0 1.5 0V13h3v1.25a.75.75 0 0 0 1.5 0V13h1.25c.966 0 1.75-.784 1.75-1.75v-6.5A1.75 1.75 0 0 0 12.25 3H11V1.75a.75.75 0 0 0-1.5 0V3h-3ZM3.5 4.75a.25.25 0 0 1 .25-.25h8.5a.25.25 0 0 1 .25.25v6.5a.25.25 0 0 1-.25.25h-8.5a.25.25 0 0 1-.25-.25Z"></path></svg>
-          <span>Comparar</span>
-        </a>
-      </nav>
-    </header>
-    ${content}
-  `;
-}
-
-// Markdown parser
-function renderMarkdown(src) {
-  if (!src) return '<p class="empty-md">Documento vazio.</p>';
-
-  const lines = src.split('\n');
-  let html = [];
-  let inCode = false;
-  let codeLang = '';
-  let codeBuf = [];
-  let inList = false;
-  let inTable = false;
-  let tableHeader = true;
-
-  const flushList = () => { if (inList) { html.push('</ul>'); inList = false; } };
-  const flushTable = () => { if (inTable) { html.push('</tbody></table></div>'); inTable = false; tableHeader = true; } };
-
-  const inlineFormat = t => {
-    return esc(t)
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-      .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, txt, url) => {
-        const clean = url.trim();
-        if (/^(https?:\/\/|\/|#)/i.test(clean)) {
-          return `<a href="${esc(clean)}" target="_blank" rel="noopener">${txt}</a>`;
-        }
-        return txt;
-      });
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    const line = rawLine.trim();
-
-    if (line.startsWith('```')) {
-      if (inCode) {
-        html.push(`<pre class="md-codeblock"><code>${esc(codeBuf.join('\n'))}</code></pre>`);
-        codeBuf = [];
-        inCode = false;
-      } else {
-        flushList();
-        flushTable();
-        inCode = true;
-        codeLang = line.slice(3).trim();
-      }
-      continue;
+  try {
+    if (route.mode === 'editorial-dashboard') {
+      updateNavHighlight('editorial');
+      await renderEditorialDashboard();
+    } else if (route.mode === 'editorial-doc') {
+      updateNavHighlight('editorial');
+      await renderEditorialDoc(route.repo, route.tab);
+    } else if (route.mode === 'repos-dashboard') {
+      updateNavHighlight('repos');
+      await renderReposDashboard();
+    } else if (route.mode === 'infra') {
+      updateNavHighlight('infra');
+      await renderInfra();
+    } else if (route.mode === 'repo-code') {
+      updateNavHighlight('repos');
+      await renderRepoCode(route);
     }
-
-    if (inCode) {
-      codeBuf.push(rawLine);
-      continue;
-    }
-
-    if (/^(\*\*\*|---|___)$/.test(line)) {
-      flushList();
-      flushTable();
-      html.push('<hr class="md-hr">');
-      continue;
-    }
-
-    if (line.startsWith('|') && line.endsWith('|')) {
-      flushList();
-      if (/^\|[\s\-:|]+\|$/.test(line)) {
-        tableHeader = false;
-        continue;
-      }
-      const cells = line.slice(1, -1).split('|').map(c => c.trim());
-      if (!inTable) {
-        inTable = true;
-        tableHeader = true;
-        html.push('<div class="md-table-wrap"><table class="md-table">');
-        html.push('<thead><tr>' + cells.map(c => `<th>${inlineFormat(c)}</th>`).join('') + '</tr></thead><tbody>');
-      } else {
-        html.push('<tr>' + cells.map(c => `<td>${inlineFormat(c)}</td>`).join('') + '</tr>');
-      }
-      continue;
-    } else {
-      flushTable();
-    }
-
-    if (line.startsWith('#')) {
-      flushList();
-      const m = line.match(/^(#{1,6})\s+(.*)$/);
-      if (m) {
-        const lvl = m[1].length;
-        const text = m[2];
-        html.push(`<h${lvl} class="md-h${lvl}">${inlineFormat(text)}</h${lvl}>`);
-        continue;
-      }
-    }
-
-    if (line.startsWith('>')) {
-      flushList();
-      let bq = line.replace(/^>\s?/, '');
-      let alertClass = 'md-quote';
-      let alertPrefix = '';
-      if (bq.startsWith('[!NOTE]')) {
-        alertClass = 'md-alert md-alert-note';
-        alertPrefix = '<strong>Nota:</strong> ';
-        bq = bq.slice(7).trim();
-      } else if (bq.startsWith('[!WARNING]') || bq.startsWith('[!CAUTION]')) {
-        alertClass = 'md-alert md-alert-warn';
-        alertPrefix = '<strong>Atenção:</strong> ';
-        bq = bq.slice(bq.indexOf(']') + 1).trim();
-      } else if (bq.startsWith('[!TIP]')) {
-        alertClass = 'md-alert md-alert-tip';
-        alertPrefix = '<strong>Dica:</strong> ';
-        bq = bq.slice(6).trim();
-      }
-      html.push(`<div class="${alertClass}">${alertPrefix}${inlineFormat(bq)}</div>`);
-      continue;
-    }
-
-    if (/^[-*]\s+/.test(line)) {
-      if (!inList) {
-        html.push('<ul class="md-list">');
-        inList = true;
-      }
-      html.push(`<li>${inlineFormat(line.replace(/^[-*]\s+/, ''))}</li>`);
-      continue;
-    } else {
-      flushList();
-    }
-
-    if (!line) continue;
-
-    html.push(`<p class="md-p">${inlineFormat(line)}</p>`);
-  }
-
-  flushList();
-  flushTable();
-  return html.join('\n');
-}
-
-// Diff Parser & Renderer
-function renderDiff(diffText) {
-  if (!diffText || !diffText.trim()) {
-    return '<div class="notice">Sem diferenças entre as revisões especificadas.</div>';
-  }
-
-  const lines = diffText.split('\n');
-  const files = [];
-  let currentFile = null;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line.startsWith('diff --git ')) {
-      const parts = line.split(' ');
-      const pathB = parts[3] ? parts[3].replace(/^b\//, '') : parts[2];
-      currentFile = { name: pathB, adds: 0, dels: 0, lines: [] };
-      files.push(currentFile);
-      continue;
-    }
-
-    if (!currentFile) continue;
-
-    if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('index ')) {
-      currentFile.lines.push({ type: 'meta', text: line });
-    } else if (line.startsWith('+')) {
-      currentFile.adds++;
-      currentFile.lines.push({ type: 'add', text: line });
-    } else if (line.startsWith('-')) {
-      currentFile.dels++;
-      currentFile.lines.push({ type: 'del', text: line });
-    } else if (line.startsWith('@@')) {
-      currentFile.lines.push({ type: 'hunk', text: line });
-    } else {
-      currentFile.lines.push({ type: 'ctx', text: line });
-    }
-  }
-
-  if (files.length === 0) {
-    return `<div class="codebox"><pre>${esc(diffText)}</pre></div>`;
-  }
-
-  let totalAdds = files.reduce((acc, f) => acc + f.adds, 0);
-  let totalDels = files.reduce((acc, f) => acc + f.dels, 0);
-
-  let out = `
-    <div class="diff-summary-card">
-      <div class="diff-summary-title">
-        <b>${files.length}</b> arquivo(s) modificado(s) com 
-        <span class="diff-stat-add">+${totalAdds}</span> adições e 
-        <span class="diff-stat-del">-${totalDels}</span> exclusões
-      </div>
-      <div class="diff-file-toc">
-        ${files.map(f => `
-          <div class="toc-item">
-            <span class="toc-name">${esc(f.name)}</span>
-            <span class="toc-stat"><span class="diff-stat-add">+${f.adds}</span> <span class="diff-stat-del">-${f.dels}</span></span>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `;
-
-  for (const f of files) {
-    out += `
-      <div class="diff-file-box">
-        <div class="diff-file-header">
-          <div class="diff-file-title">
-            <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.793V4.25c0 .138.112.25.25.25h2.707Z"></path></svg>
-            <span>${esc(f.name)}</span>
-          </div>
-          <div class="diff-file-actions">
-            <span class="diff-stat-add">+${f.adds}</span>
-            <span class="diff-stat-del">-${f.dels}</span>
-          </div>
-        </div>
-        <div class="diff-table">
-          ${f.lines.map(l => {
-            const cls = l.type === 'add' ? 'diff-line-add' : l.type === 'del' ? 'diff-line-del' : l.type === 'hunk' ? 'diff-line-hunk' : 'diff-line-ctx';
-            return `<div class="diff-row ${cls}"><span class="diff-marker">${esc(l.text.charAt(0))}</span><span class="diff-content">${esc(l.text.slice(1) || ' ')}</span></div>`;
-          }).join('')}
-        </div>
+  } catch (err) {
+    app.innerHTML = `
+      <div class="empty-state" style="padding:40px; text-align:center;">
+        <h2 style="color:var(--navy);">Ocorreu um erro</h2>
+        <p style="color:var(--muted);">${esc(err.message)}</p>
+        <button class="btn-primary" onclick="location.hash='#/editorial'">Voltar ao Espaço Editorial</button>
       </div>
     `;
   }
-
-  return out;
 }
 
-// Branch Selector Component
-function renderBranchSelector(repo, currentRef, branches, currentPath, tab = 'code') {
-  return `
-    <div class="branch-select-wrap">
-      <span class="branch-select-label">
-        <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z"></path></svg>
-        <select class="branch-select" onchange="location.href='${link(repo, tab, { path: currentPath })}&ref=' + encodeURIComponent(this.value)">
-          ${branches.map(b => `<option value="${esc(b.name)}" ${b.name === currentRef ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}
-        </select>
-      </span>
-    </div>
-  `;
-}
+// ============================================================================
+// VIEW 1: ESPAÇO EDITORIAL (DASHBOARD)
+// ============================================================================
 
-// Views
-async function home() {
-  const d = await api('/api/v1/repos');
-  const authStatus = await api('/api/v1/auth/status').catch(() => ({ authenticated: false }));
+async function renderEditorialDashboard() {
+  const data = await api('/api/v1/repos');
+  allReposCache = data.repositories || [];
 
-  const privates = d.repositories.filter(r => r.visibility === 'private').length;
-  const publics = d.repositories.filter(r => r.visibility === 'public').length;
-  const editorials = d.repositories.filter(r => r.type === 'editorial').length;
+  const editorials = allReposCache.filter(r => r.type === 'editorial');
+  const software = allReposCache.filter(r => r.type !== 'editorial');
+  const drafts = editorials.filter(r => r.empty || !r.tags).length;
+  const published = editorials.reduce((acc, r) => acc + (r.tags || 0), 0);
 
   app.innerHTML = `
-    <section class="hero-github">
-      <div class="hero-content">
-        <div class="eyebrow">Laboratório de Ecologia e Conservação</div>
-        <h1>SisTer Git</h1>
-        <p class="hero-desc">Hospedagem segura, governança visual e gestão editorial baseada em Git, com preservação de proveniência e integridade.</p>
+    <header class="hero-editorial">
+      <div class="hero-kicker">GOVERNANÇA EDITORIAL CIENTÍFICA · C++26</div>
+      <h1 class="hero-title">SisTer Git Editorial</h1>
+      <p class="hero-desc">
+        Ambiente integrado para elaboração de artigos, revisão por pares com proveniência W3C PROV e homologação de edições imutáveis diretamente sobre repositórios Git, sem necessidade de comandos de terminal.
+      </p>
+      <div class="statgrid">
+        <div class="stat-card">
+          <span>Artigos &amp; Relatórios</span>
+          <strong>${editorials.length}</strong>
+          <small>Documentos em governança</small>
+        </div>
+        <div class="stat-card">
+          <span>Em Elaboração</span>
+          <strong>${drafts}</strong>
+          <small>Versões em evolução ativa</small>
+        </div>
+        <div class="stat-card">
+          <span>Edições Homologadas</span>
+          <strong>${published}</strong>
+          <small>Tags anotadas <code>ed/*</code></small>
+        </div>
+        <div class="stat-card">
+          <span>Software &amp; Código</span>
+          <strong>${software.length}</strong>
+          <small><a href="#/repos" style="color:#a8cae2; text-decoration:underline;">Ver repositórios</a></small>
+        </div>
       </div>
-      <div class="hero-badges">
-        ${authStatus.authenticated ? `
-          <span class="status-pill status-active">● Pesquisador Autenticado</span>
-        ` : `
-          <span class="status-pill status-warn">Acesso Anônimo / Leitura Pública</span>
-        `}
-        <span class="meta-tag">${d.repositories.length} projetos (${editorials} editoriais, ${publics} públicos${privates ? `, ${privates} privados` : ''})</span>
-      </div>
-    </section>
+    </header>
 
-    <div class="repo-filter-bar">
-      <h2>Projetos do Laboratório</h2>
+    <div class="section-head-bar">
+      <div>
+        <h2 class="section-title">Artigos e Projetos Documentais</h2>
+        <p class="section-sub">Selecione um documento para ler, revisar ou salvar uma nova versão</p>
+      </div>
+      <button type="button" class="btn-primary" onclick="openNewProjectModal('editorial')">
+        + Novo Artigo Científico
+      </button>
     </div>
 
-    <div class="repo-grid">
-      ${d.repositories.map(r => `
-        <article class="repo-card ${r.type === 'editorial' ? 'card-editorial' : ''}">
-          <div class="repo-card-top">
-            <div class="repo-card-title">
-              <svg class="octicon repo-icon" viewBox="0 0 16 16" width="18" height="18"><path fill="currentColor" d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h6.5a.25.25 0 0 1 .25.25v1.5a.25.25 0 0 1-.25.25h-6.5a.25.25 0 0 1-.25-.25Z"></path></svg>
-              <a class="repo-link" href="${link(r.name, r.type === 'editorial' ? 'editorial' : 'code')}">${esc(r.name)}</a>
-              <span class="badge badge-branch">${esc(r.default_branch || 'main')}</span>
-              ${r.type === 'editorial' ? '<span class="badge badge-editorial">📖 Editorial</span>' : ''}
-              ${r.visibility === 'private' ? '<span class="badge badge-private">🔒 Privado</span>' : '<span class="badge badge-public">🌐 Público</span>'}
-            </div>
-          </div>
-          <div class="repo-card-body">
-            ${r.empty ? '<span class="empty-repo">Repositório vazio (sem commits)</span>' : `
-              <div class="last-commit-msg">${esc(r.last_commit.subject)}</div>
-              <div class="last-commit-meta">
-                <span class="mono-hash">${esc(r.last_commit.short_hash)}</span> por <strong>${esc(r.last_commit.author)}</strong> · ${timeAgo(r.last_commit.date)}
-              </div>
-            `}
-          </div>
-          <div class="repo-card-footer">
-            <span class="stat-item"><svg class="octicon" viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z"></path></svg> <b>${r.branches}</b> branches</span>
-            <span class="stat-item"><svg class="octicon" viewBox="0 0 16 16" width="14" height="14"><path fill="currentColor" d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.75 1.75 0 0 1 1 7.775Zm1.5 0c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073H2.75a.25.25 0 0 0-.25.25ZM6 5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg> <b>${r.tags}</b> tags</span>
-            <span class="stat-item">${fmt(r.size_bytes)}</span>
-          </div>
-        </article>
-      `).join('') || '<div class="empty-state">Nenhum repositório público disponível. Se você é um pesquisador autorizado, clique em "Entrar" no topo para visualizar repositórios privados.</div>'}
-    </div>
-  `;
-}
-
-async function editorial(repo) {
-  const [edData, reposList, refsData] = await Promise.all([
-    api(`/api/v1/repos/${encodeURIComponent(repo)}/editorial`),
-    api('/api/v1/repos').catch(() => ({ repositories: [] })),
-    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`).catch(() => ({ branches: [], tags: [] }))
-  ]);
-
-  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
-  const visibility = currentRepoMeta?.visibility || 'public';
-  const repoType = currentRepoMeta?.type || (edData.is_editorial ? 'editorial' : 'software');
-  const branches = refsData.branches || [];
-  const tags = refsData.tags || [];
-
-  const manifest = edData.manifest || null;
-  const title = manifest?.title || repo;
-  const abstract = manifest?.abstract || 'Projeto documental sob governança editorial e proveniência Git do SisTer Git.';
-  const authors = manifest?.authors || [{ name: 'Pesquisador(es) do LABECO', affiliation: 'LABECO' }];
-  const stage = manifest?.current_stage || 'draft';
-  const reviews = manifest?.reviews || [];
-  const decisions = manifest?.decisions || [];
-  const editions = edData.editions || [];
-  const mainDoc = manifest?.document_main || 'manuscrito.md';
-
-  let docContent = null;
-  let docLoadedName = mainDoc;
-  try {
-    const d = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?path=${encodeURIComponent(mainDoc)}`);
-    docContent = d.content;
-  } catch (_) {
-    try {
-      const d2 = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?path=README.md`);
-      docContent = d2.content;
-      docLoadedName = 'README.md';
-    } catch (_) {}
-  }
-
-  const stageMap = {
-    'draft': { label: '✏️ Em Elaboração / Rascunho', cls: 'stage-draft' },
-    'in_review': { label: '🔍 Em Revisão Científica', cls: 'stage-review' },
-    'review': { label: '🔍 Em Revisão Científica', cls: 'stage-review' },
-    'revision': { label: '📝 Ajustes Solicitados', cls: 'stage-revision' },
-    'approved': { label: '✅ Aprovado pelo Editor', cls: 'stage-approved' },
-    'published': { label: '🏛️ Edição Publicada', cls: 'stage-published' }
-  };
-  const stageInfo = stageMap[stage] || stageMap['draft'];
-
-  let timelineHtml = '';
-  if (reviews.length === 0 && decisions.length === 0) {
-    timelineHtml = `
-      <div class="empty-timeline-card">
-        <div class="empty-timeline-title">Nenhum parecer ou decisão registrado neste manifesto ainda.</div>
-        <p>Conforme pareceristas e editores avaliarem o manuscrito, os pareceres vinculados aos commits exatos aparecerão aqui em ordem de proveniência temporal (W3C PROV).</p>
-      </div>
-    `;
-  } else {
-    const revHtml = reviews.map(r => `
-      <div class="provenance-item">
-        <div class="provenance-marker marker-review">🔍</div>
-        <div class="provenance-card">
-          <div class="provenance-card-header">
-            <div class="provenance-who">
-              <b>${esc(r.reviewer || 'Revisor Convidado')}</b> emitiu parecer:
-              <span class="badge ${r.recommendation === 'approved' ? 'badge-public' : 'badge-private'}">${esc(r.recommendation === 'approved' ? 'Aprovação' : 'Ajustes Necessários')}</span>
-            </div>
-            <div class="provenance-meta">${timeAgo(r.date)} · commit <a class="mono-hash" href="${link(repo, 'code', { ref: r.commit })}">${esc((r.commit || '').slice(0, 7))}</a></div>
-          </div>
-          <div class="provenance-body">
-            <p>${esc(r.summary || r.content || '')}</p>
-            ${r.resolution ? `
-              <div class="provenance-resolution">
-                <div class="resolution-title"><b>Resposta do Autor / Ajuste Fundamentado:</b></div>
-                <p>${esc(r.resolution.author_response || '')}</p>
-                ${r.resolution.resolved_in_commit ? `
-                  <div class="resolution-commit">Solucionado no commit: <a class="mono-hash" href="${link(repo, 'code', { ref: r.resolution.resolved_in_commit })}">${esc(r.resolution.resolved_in_commit.slice(0, 7))}</a></div>
-                ` : ''}
-              </div>
-            ` : ''}
-          </div>
-        </div>
-      </div>
-    `).join('');
-
-    const decHtml = decisions.map(d => `
-      <div class="provenance-item">
-        <div class="provenance-marker marker-decision">🏛️</div>
-        <div class="provenance-card decision-card">
-          <div class="provenance-card-header">
-            <div class="provenance-who">
-              <b>${esc(d.editor || 'Editor Responsável')}</b> homologou decisão editorial:
-              <span class="badge badge-public">${esc(d.decision_type || 'Aprovação Formal')}</span>
-            </div>
-            <div class="provenance-meta">${timeAgo(d.date)} · commit <a class="mono-hash" href="${link(repo, 'code', { ref: d.target_commit })}">${esc((d.target_commit || '').slice(0, 7))}</a></div>
-          </div>
-          <div class="provenance-body">
-            <p>${esc(d.notes || d.justification || '')}</p>
-          </div>
-        </div>
-      </div>
-    `).join('');
-
-    timelineHtml = `<div class="provenance-timeline">${revHtml}${decHtml}</div>`;
-  }
-
-  let editionsHtml = '';
-  if (editions.length > 0) {
-    editionsHtml = `
-      <section class="editorial-section">
-        <div class="editorial-section-title">
-          <h3>Edições Publicadas & Versões Imutáveis (${editions.length})</h3>
-        </div>
-        <div class="editions-grid">
-          ${editions.map(ed => `
-            <div class="edition-card">
-              <div class="edition-top">
-                <span class="edition-tag">🏷️ ${esc(ed.tag)}</span>
-                <span class="mono-hash">${esc(ed.hash.slice(0, 7))}</span>
-              </div>
-              <div class="edition-subj">${esc(ed.subject || 'Versão editorial')}</div>
-              <div class="edition-date">${date(ed.date)}</div>
-              <div class="edition-actions">
-                <a class="btn-read-edition" href="${link(repo, 'code', { ref: ed.tag })}">Examinar esta edição</a>
-              </div>
-            </div>
-          `).join('')}
-        </div>
-      </section>
-    `;
-  }
-
-  const editorialContent = `
-    <article class="editorial-dashboard">
-      <header class="editorial-hero-card">
-        <div class="editorial-hero-top">
-          <span class="stage-pill ${stageInfo.cls}">${stageInfo.label}</span>
-          <span class="meta-tag">Documento base: <code>${esc(docLoadedName)}</code></span>
-        </div>
-        <h1 class="editorial-work-title">${esc(title)}</h1>
-        <div class="editorial-authors">
-          ${authors.map(a => `
-            <span class="author-tag"><b>${esc(a.name)}</b> ${a.affiliation ? `(${esc(a.affiliation)})` : ''}</span>
-          `).join(' · ')}
-        </div>
-        <div class="editorial-abstract">
-          <div class="abstract-label">Resumo Editorial:</div>
-          <p>${esc(abstract)}</p>
-        </div>
-      </header>
-
-      ${editionsHtml}
-
-      <section class="editorial-section">
-        <div class="editorial-section-title">
-          <h3>Linha do Tempo de Proveniência Editorial</h3>
-          <span class="section-sub">Histórico imutável de pareceres, revisões e decisões fundamentadas vinculadas a commits</span>
-        </div>
-        ${timelineHtml}
-      </section>
-
-      <section class="editorial-section">
-        <div class="editorial-section-title">
-          <h3>Leitura Editorial do Manuscrito</h3>
-          <span class="section-sub">Renderizado a partir de <code>${esc(docLoadedName)}</code></span>
-        </div>
-        <div class="editorial-reader-frame">
-          ${docContent !== null ? `
-            <div class="editorial-reader-body markdown-body">
-              ${renderMarkdown(docContent)}
-            </div>
-          ` : `
-            <div class="empty-state">
-              O documento principal <code>${esc(mainDoc)}</code> ainda não foi comitado no repositório.
-            </div>
-          `}
-        </div>
-      </section>
-    </article>
-  `;
-
-  app.innerHTML = frame(repo, 'editorial', editorialContent, 'main', branches, tags, visibility, repoType);
-}
-
-async function code(repo, path = '', reqRef = '') {
-  const [refsData, reposList] = await Promise.all([
-    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
-    api('/api/v1/repos').catch(() => ({ repositories: [] }))
-  ]);
-  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
-  const visibility = currentRepoMeta?.visibility || 'public';
-  const repoType = currentRepoMeta?.type || 'software';
-
-  const branches = refsData.branches || [];
-  const tags = refsData.tags || [];
-  const branch = reqRef || branches[0]?.name || 'main';
-
-  const tree = await api(`/api/v1/repos/${encodeURIComponent(repo)}/tree?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`);
-
-  const segments = path.split('/').filter(Boolean);
-  let crumbsHtml = `<a class="crumb-link" href="${link(repo, 'code', { ref: branch })}"><b>${esc(repo)}</b></a>`;
-  let accum = '';
-  segments.forEach((seg, idx) => {
-    accum += (accum ? '/' : '') + seg;
-    crumbsHtml += ` <span class="crumb-sep">/</span> <a class="crumb-link" href="${link(repo, 'code', { ref: branch, path: accum })}">${esc(seg)}</a>`;
-  });
-
-  const sorted = (tree.entries || []).sort((a, b) => {
-    if (a.type === 'tree' && b.type !== 'tree') return -1;
-    if (a.type !== 'tree' && b.type === 'tree') return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  const readmeEntry = sorted.find(e => e.type === 'blob' && /^readme(\.md|\.txt)?$/i.test(e.name));
-
-  const rows = sorted.map(e => {
-    const isDir = e.type === 'tree';
-    const itemPath = path ? `${path}/${e.name}` : e.name;
-    const itemUrl = isDir ? link(repo, 'code', { ref: branch, path: itemPath }) : link(repo, 'blob', { ref: branch, path: itemPath });
-    const icon = isDir ? `
-      <svg class="octicon file-icon dir-icon" viewBox="0 0 16 16" width="16" height="16"><path fill="#54aeff" d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"></path></svg>
-    ` : `
-      <svg class="octicon file-icon" viewBox="0 0 16 16" width="16" height="16"><path fill="#656d76" d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.793V4.25c0 .138.112.25.25.25h2.707Z"></path></svg>
-    `;
-
-    return `
-      <div class="tree-row">
-        <div class="tree-name-col">
-          ${icon}
-          <a class="tree-name-link ${isDir ? 'dir-name' : ''}" href="${itemUrl}">${esc(e.name)}</a>
-        </div>
-        <div class="tree-hash-col">
-          <span class="mono-hash">${esc(e.hash.slice(0, 7))}</span>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  let readmeHtml = '';
-  if (readmeEntry) {
-    const readmePath = path ? `${path}/${readmeEntry.name}` : readmeEntry.name;
-    const blobData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(readmePath)}`);
-    readmeHtml = `
-      <article class="readme-card">
-        <header class="readme-card-header">
-          <div class="readme-title">
-            <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.244a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.244a2.25 2.25 0 0 0-1.762.85.75.75 0 0 1-1.188 0A2.25 2.25 0 0 0 6.003 13H1.75a.75.75 0 0 1-.75-.75Zm7.25 9.99V3.25c0-.69-.56-1.25-1.25-1.25H1.5v9h4.503c.427 0 .83.155 1.247.74Zm1.5 0c.418-.585.82-.74 1.247-.74h4.503v-9h-4.244c-.69 0-1.25.56-1.25 1.25Z"></path></svg>
-            <span>${esc(readmeEntry.name)}</span>
-          </div>
-          <button class="btn-copy" onclick="copyText(${esc(JSON.stringify(blobData.content || ''))}, this)">Copiar raw</button>
-        </header>
-        <div class="readme-content markdown-body">
-          ${renderMarkdown(blobData.content || '')}
-        </div>
-      </article>
-    `;
-  }
-
-  const toolbar = `
-    <div class="code-toolbar">
-      <div class="code-toolbar-left">
-        ${renderBranchSelector(repo, branch, branches, path, 'code')}
-        <nav class="breadcrumb-trail">${crumbsHtml}</nav>
-      </div>
-      <div class="code-toolbar-right">
-        <span class="file-count">${sorted.length} item(ns)</span>
-      </div>
-    </div>
-  `;
-
-  app.innerHTML = frame(repo, 'code', `
-    ${toolbar}
-    <div class="tree-table">
-      <div class="tree-table-header">
-        <span>Nome</span>
-        <span>Último commit</span>
-      </div>
-      ${rows || '<div class="empty-state">Diretório vazio.</div>'}
-    </div>
-    ${readmeHtml}
-  `, branch, branches, tags, visibility, repoType);
-}
-
-async function blob(repo, path, reqRef = '') {
-  const [refsData, reposList] = await Promise.all([
-    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
-    api('/api/v1/repos').catch(() => ({ repositories: [] }))
-  ]);
-  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
-  const visibility = currentRepoMeta?.visibility || 'public';
-  const repoType = currentRepoMeta?.type || 'software';
-
-  const branches = refsData.branches || [];
-  const tags = refsData.tags || [];
-  const branch = reqRef || branches[0]?.name || 'main';
-
-  const d = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=${encodeURIComponent(branch)}&path=${encodeURIComponent(path)}`);
-
-  const segments = path.split('/').filter(Boolean);
-  let crumbsHtml = `<a class="crumb-link" href="${link(repo, 'code', { ref: branch })}"><b>${esc(repo)}</b></a>`;
-  let accum = '';
-  segments.forEach((seg, idx) => {
-    accum += (accum ? '/' : '') + seg;
-    const isLast = idx === segments.length - 1;
-    if (isLast) {
-      crumbsHtml += ` <span class="crumb-sep">/</span> <span class="crumb-current">${esc(seg)}</span>`;
-    } else {
-      crumbsHtml += ` <span class="crumb-sep">/</span> <a class="crumb-link" href="${link(repo, 'code', { ref: branch, path: accum })}">${esc(seg)}</a>`;
-    }
-  });
-
-  const lines = (d.content || '').split('\n');
-  const lineCount = lines.length;
-
-  const codeRows = lines.map((l, i) => `
-    <tr class="blob-line">
-      <td class="blob-num" data-line="${i + 1}">${i + 1}</td>
-      <td class="blob-code">${esc(l)}</td>
-    </tr>
-  `).join('');
-
-  const toolbar = `
-    <div class="code-toolbar">
-      <div class="code-toolbar-left">
-        ${renderBranchSelector(repo, branch, branches, path, 'code')}
-        <nav class="breadcrumb-trail">${crumbsHtml}</nav>
-      </div>
-    </div>
-  `;
-
-  const blobBox = `
-    <div class="blob-card">
-      <div class="blob-header">
-        <div class="blob-info">
-          <span>${lineCount} linhas</span>
-          <span class="sep-dot">·</span>
-          <span>${fmt(d.size)}</span>
-        </div>
-        <div class="blob-actions">
-          ${!d.binary ? `<button class="btn-copy" onclick="copyText(${esc(JSON.stringify(d.content))}, this)">Copiar conteúdo</button>` : ''}
-        </div>
-      </div>
-      ${d.binary ? `
-        <div class="empty-state">Arquivo binário. Visualização em texto indisponível.</div>
-      ` : `
-        <div class="blob-content-wrap">
-          <table class="blob-table">${codeRows}</table>
+    <div class="editorial-grid" id="editorialCardsGrid">
+      ${editorials.length ? editorials.map(renderEditorialCard).join('') : `
+        <div class="empty-state" style="grid-column:1/-1; background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:40px; text-align:center;">
+          <h3 style="color:var(--navy); margin-bottom:8px;">Nenhum artigo editorial cadastrado</h3>
+          <p style="color:var(--muted); margin-bottom:20px;">Comece criando o primeiro artigo sob governança editorial do SisTer Git.</p>
+          <button type="button" class="btn-primary" onclick="openNewProjectModal('editorial')">+ Criar Primeiro Artigo</button>
         </div>
       `}
     </div>
   `;
-
-  app.innerHTML = frame(repo, 'code', `${toolbar}${blobBox}`, branch, branches, tags, visibility, repoType);
 }
 
-async function commits(repo, reqRef = '') {
-  const [refsData, reposList] = await Promise.all([
-    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
-    api('/api/v1/repos').catch(() => ({ repositories: [] }))
-  ]);
-  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
-  const visibility = currentRepoMeta?.visibility || 'public';
-  const repoType = currentRepoMeta?.type || 'software';
+function renderEditorialCard(r) {
+  const vis = r.visibility === 'private'
+    ? `<span class="badge-vis vis-private">🔒 Privado</span>`
+    : `<span class="badge-vis vis-public">🌐 Público</span>`;
 
-  const branches = refsData.branches || [];
-  const tags = refsData.tags || [];
-  const branch = reqRef || branches[0]?.name || 'main';
+  const tagBadge = r.tags > 0
+    ? `<span class="badge-edition-tag">ed/${r.tags} edições</span>`
+    : `<span class="badge-stage stage-draft">Rascunho Ativo</span>`;
 
-  const d = await api(`/api/v1/repos/${encodeURIComponent(repo)}/commits?ref=${encodeURIComponent(branch)}`);
+  const lastCommitInfo = r.last_commit
+    ? `Versão salva ${timeAgo(r.last_commit.date)} por <strong>${esc(r.last_commit.author)}</strong>`
+    : 'Aguardando primeiro manuscrito';
 
-  const toolbar = `
-    <div class="code-toolbar">
-      <div class="code-toolbar-left">
-        ${renderBranchSelector(repo, branch, branches, '', 'commits')}
+  return `
+    <article class="article-card" data-search="${esc((r.name + ' ' + (r.last_commit?.subject || '')).toLowerCase())}">
+      <div class="article-card-head">
+        <a href="#/editorial/${encodeURIComponent(r.name)}" class="article-title-link">
+          ${esc(r.name)}
+        </a>
+        <div class="badges-row">
+          ${visBadge(r.visibility)}
+          ${tagBadge}
+        </div>
       </div>
-      <div class="code-toolbar-right">
-        <span class="file-count">${d.commits.length} commits</span>
+
+      <div class="article-authors">
+        ${r.last_commit ? `Última alteração: <em>"${esc(r.last_commit.subject)}"</em>` : 'Documento inicial'}
       </div>
-    </div>
+
+      <p class="article-abstract">
+        ${esc(r.description || 'Artigo científico sob rastreabilidade e proveniência Git do ecossistema SisTer.')}
+      </p>
+
+      <div class="article-meta-foot">
+        <span>${lastCommitInfo}</span>
+        <a href="#/editorial/${encodeURIComponent(r.name)}" class="btn-commit-save" style="padding:4px 10px; font-size:0.75rem; text-decoration:none;">
+          Abrir ➔
+        </a>
+      </div>
+    </article>
   `;
+}
 
-  const list = `
-    <div class="commit-list-box">
-      ${d.commits.map(c => `
-        <div class="commit-item">
-          <div class="commit-main">
-            <div class="commit-subject">${esc(c.subject)}</div>
-            <div class="commit-author-row">
-              <span class="commit-author-name">${esc(c.author)}</span>
-              <span class="sep-dot">·</span>
-              <span class="commit-date">${date(c.date)}</span>
+function visBadge(v) {
+  return v === 'private'
+    ? `<span class="badge-vis vis-private">🔒 Privado</span>`
+    : `<span class="badge-vis vis-public">🌐 Público</span>`;
+}
+
+// ============================================================================
+// VIEW 2: ESPAÇO DOCUMENTAL (LEITURA, EDITOR, PARECERES, PUBLICAÇÃO)
+// ============================================================================
+
+async function renderEditorialDoc(repo, tab = 'manuscript') {
+  crumbCurrent.innerHTML = `<a href="#/editorial">Espaço Editorial</a> / <strong>${esc(repo)}</strong>`;
+
+  const [edData, blobData, refsData] = await Promise.all([
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/editorial`),
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=HEAD&path=manuscrito.md`).catch(() => null),
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`).catch(() => ({ branches: [], tags: [] }))
+  ]);
+
+  const manifest = edData.manifest || {};
+  const title = manifest.title || repo;
+  const authors = manifest.authors && manifest.authors.length
+    ? manifest.authors.map(a => a.name).join(', ')
+    : 'Pesquisador LABECO';
+  const stage = manifest.current_stage || (edData.tags && edData.tags.length ? 'published' : 'draft');
+  const reviews = manifest.reviews || [];
+  const editions = (edData.tags || []);
+  const rawMarkdown = blobData && !blobData.binary ? blobData.content : '# ' + title + '\n\nInicie a escrita do seu manuscrito.';
+
+  const stageBadge = stage === 'published'
+    ? `<span class="badge-stage stage-published">✓ Publicado</span>`
+    : (stage === 'in_review'
+      ? `<span class="badge-stage stage-in_review">✎ Em Revisão por Pares</span>`
+      : `<span class="badge-stage stage-draft">Rascunho Ativo</span>`);
+
+  let tabContent = '';
+
+  if (tab === 'manuscript') {
+    tabContent = `
+      <article class="manuscript-reader markdown-body">
+        ${renderMarkdown(rawMarkdown)}
+        <hr>
+        <footer style="font-size:0.8rem; color:var(--muted); text-align:center; padding-top:10px;">
+          <em>Preservado sob governança SisTer Git Editorial · LABECO · Sempre pronto. Sempre incompleto!</em>
+        </footer>
+      </article>
+    `;
+  } else if (tab === 'editor') {
+    tabContent = `
+      <div class="split-editor-container">
+        <div class="split-editor-grid">
+          <div class="editor-pane">
+            <div class="pane-header">
+              <span>Manuscrito Markdown (manuscrito.md)</span>
+              <span id="charCount">0 caracteres</span>
+            </div>
+            <textarea class="editor-textarea" id="liveEditorTextarea" oninput="handleEditorInput(this.value)">${esc(rawMarkdown)}</textarea>
+          </div>
+          <div class="preview-pane">
+            <div class="pane-header">
+              <span>Visualização Renderizada em Tempo Real</span>
+              <span style="color:var(--teal);">Leitura Científica</span>
+            </div>
+            <div class="preview-body markdown-body" id="livePreviewPane">
+              ${renderMarkdown(rawMarkdown)}
             </div>
           </div>
-          <div class="commit-hash-actions">
-            <button class="btn-copy btn-hash" onclick="copyText(${esc(JSON.stringify(c.hash))}, this)" title="Copiar hash completo">${esc(c.short_hash)}</button>
-            <a class="btn-tree-link" href="${link(repo, 'code', { ref: c.hash })}" title="Navegar no estado deste commit">
-              <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.06 0 .75.75 0 0 1 0 1.06L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z"></path></svg>
-            </a>
-          </div>
         </div>
-      `).join('') || '<div class="empty-state">Nenhum commit encontrado nesta revisão.</div>'}
-    </div>
-  `;
 
-  app.innerHTML = frame(repo, 'commits', `${toolbar}${list}`, branch, branches, tags, visibility, repoType);
-}
-
-async function refs(repo) {
-  const [d, reposList] = await Promise.all([
-    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
-    api('/api/v1/repos').catch(() => ({ repositories: [] }))
-  ]);
-  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
-  const visibility = currentRepoMeta?.visibility || 'public';
-  const repoType = currentRepoMeta?.type || 'software';
-
-  const branches = d.branches || [];
-  const tags = d.tags || [];
-
-  const renderSection = (title, items, isBranch = true) => `
-    <div class="refs-section">
-      <div class="refs-header">
-        <h3>${title} (${items.length})</h3>
+        <form class="editor-commit-bar" onsubmit="handleSaveManuscript(event, '${esc(repo)}')">
+          <div class="commit-input-group">
+            <label style="font-weight:700; font-size:0.8rem; color:var(--navy);">Autor:</label>
+            <input type="text" id="commitAuthor" required value="${esc(authors.split(',')[0].trim())}" placeholder="Nome do autor">
+          </div>
+          <div class="commit-input-group" style="flex:2;">
+            <label style="font-weight:700; font-size:0.8rem; color:var(--navy);">Alterações:</label>
+            <input type="text" id="commitMsg" required placeholder="Ex.: Revisão da metodologia e citação de novas fontes">
+          </div>
+          <button type="submit" class="btn-commit-save" id="btnSaveManuscript">
+            <span>Salvar Versão no Git ⎇</span>
+          </button>
+        </form>
       </div>
-      <div class="refs-table">
-        ${items.map(r => `
-          <div class="refs-row">
-            <div class="refs-left">
-              <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Z"></path></svg>
-              <a class="ref-name" href="${link(repo, 'code', { ref: r.name })}">${esc(r.name)}</a>
-              ${r.name === 'main' ? '<span class="badge badge-default">Padrão</span>' : ''}
+    `;
+  } else if (tab === 'reviews') {
+    tabContent = `
+      <div class="reviews-container">
+        <div class="reviews-toolbar">
+          <div>
+            <h3 style="margin:0; color:var(--navy); font-size:1.1rem;">Rodadas de Pareceres e Avaliação por Pares</h3>
+            <p style="margin:2px 0 0; color:var(--muted); font-size:0.82rem;">Rastreabilidade W3C PROV: cada parecer fica registrado no histórico imutável</p>
+          </div>
+          <button type="button" class="btn-primary" onclick="openNewReviewModal('${esc(repo)}')">
+            + Emitir Parecer Editorial
+          </button>
+        </div>
+
+        ${reviews.length ? reviews.map(r => `
+          <div class="review-card">
+            <div class="review-card-head">
+              <span class="reviewer-name">${esc(r.reviewer || 'Avaliador')}</span>
+              <div class="badges-row">
+                <span class="review-badge-rec rec-${esc(r.recommendation || 'accept')}">
+                  ${esc(r.recommendation === 'accept' ? '✓ Aceito' : (r.recommendation === 'accept_with_revisions' ? '✎ Aceito com Revisões' : (r.recommendation === 'revise_and_resubmit' ? '↻ Revisar e Ressubmeter' : '✗ Rejeitado')))}
+                </span>
+                <span class="review-date">${formatDate(r.date)}</span>
+              </div>
             </div>
-            <div class="refs-right">
-              <span class="mono-hash">${esc(r.hash.slice(0, 7))}</span>
-              <span class="ref-date">${date(r.date)}</span>
-              ${isBranch && r.name !== 'main' ? `
-                <a class="btn-compare-link" href="${link(repo, 'compare', { base: 'main', head: r.name })}">Comparar com main</a>
-              ` : ''}
+            <div class="review-text">${esc(r.summary || r.comments || '')}</div>
+            ${r.resolution ? `
+              <div class="review-resolution-box">
+                <strong>Resposta do Autor / Resolução:</strong>
+                <div>${esc(r.resolution.author_response || 'Alterações incorporadas.')}</div>
+                ${r.resolution.resolved_in_commit ? `<div style="margin-top:4px; font-family:var(--font-mono); font-size:0.75rem; color:var(--blue);">Commit: ${esc(r.resolution.resolved_in_commit.substr(0, 8))}</div>` : ''}
+              </div>
+            ` : ''}
+          </div>
+        `).join('') : `
+          <div class="empty-state" style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:36px; text-align:center;">
+            <p style="color:var(--muted); margin:0 0 16px;">Nenhum parecer formal registrado para este manuscrito.</p>
+            <button class="btn-primary" onclick="openNewReviewModal('${esc(repo)}')">+ Emitir Primeiro Parecer</button>
+          </div>
+        `}
+      </div>
+    `;
+  } else if (tab === 'publish') {
+    tabContent = `
+      <div class="editions-container">
+        <div class="reviews-toolbar">
+          <div>
+            <h3 style="margin:0; color:var(--navy); font-size:1.1rem;">Edições Publicadas &amp; Proveniência Git</h3>
+            <p style="margin:2px 0 0; color:var(--muted); font-size:0.82rem;">Versões com tags anotadas <code>ed/*</code> garantem imutabilidade e citação científica</p>
+          </div>
+          <button type="button" class="btn-primary" onclick="openPublishModal('${esc(repo)}')">
+            + Publicar Nova Edição
+          </button>
+        </div>
+
+        ${editions.length ? editions.map(ed => `
+          <div class="edition-card">
+            <div class="edition-head">
+              <span class="edition-tag-name">${esc(ed.name)}</span>
+              <span style="font-size:0.78rem; color:var(--muted);">${formatDate(ed.date)}</span>
+            </div>
+            <div class="edition-notes">
+              <strong>${esc(ed.subject || 'Edição Homologada')}</strong>
+            </div>
+            <div style="font-family:var(--font-mono); font-size:0.75rem; color:var(--muted);">
+              Assinatura Git: <code>${esc(ed.hash.substr(0, 10))}</code>
             </div>
           </div>
-        `).join('') || '<div class="empty-state">Nenhuma referência encontrada.</div>'}
-      </div>
-    </div>
-  `;
-
-  app.innerHTML = frame(repo, 'refs', `
-    <div class="refs-grid">
-      ${renderSection('Branches', branches, true)}
-      ${renderSection('Tags', tags, false)}
-    </div>
-  `, 'main', branches, tags, visibility, repoType);
-}
-
-async function compare(repo, reqBase = '', reqHead = '') {
-  const [refsData, reposList] = await Promise.all([
-    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
-    api('/api/v1/repos').catch(() => ({ repositories: [] }))
-  ]);
-  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
-  const visibility = currentRepoMeta?.visibility || 'public';
-  const repoType = currentRepoMeta?.type || 'software';
-
-  const branches = refsData.branches || [];
-  const tags = refsData.tags || [];
-
-  const defaultBase = reqBase || 'main~1';
-  const defaultHead = reqHead || 'main';
-
-  app.innerHTML = frame(repo, 'compare', `
-    <div class="compare-card">
-      <div class="compare-top">
-        <h2>Comparação de Revisões</h2>
-        <p class="compare-desc">Analise as alterações entre dois ramos, tags ou commits do repositório.</p>
-      </div>
-
-      <form class="compare-form" id="compareForm">
-        <div class="compare-fields">
-          <div class="compare-field">
-            <label>Base (revisão de origem):</label>
-            <input class="input-text" name="base" value="${esc(defaultBase)}" placeholder="ex.: main~1 ou feat/..." required>
+        `).join('') : `
+          <div class="empty-state" style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:36px; text-align:center;">
+            <p style="color:var(--muted); margin:0 0 16px;">Nenhuma edição formal publicada ainda.</p>
+            <button class="btn-primary" onclick="openPublishModal('${esc(repo)}')">Publicar Versão v1.0 🚀</button>
           </div>
-          <div class="compare-arrow">←</div>
-          <div class="compare-field">
-            <label>Destino (alterações a aplicar):</label>
-            <input class="input-text" name="head" value="${esc(defaultHead)}" placeholder="ex.: main ou feat/..." required>
-          </div>
-          <div class="compare-action">
-            <button class="btn-primary" type="submit">Comparar alterações</button>
-          </div>
-        </div>
-      </form>
-
-      ${branches.length > 1 ? `
-        <div class="quick-compare-chips">
-          <span class="chips-label">Atalhos rápidos:</span>
-          ${branches.filter(b => b.name !== 'main').map(b => `
-            <a class="chip-btn" href="${link(repo, 'compare', { base: 'main', head: b.name })}">main ← ${esc(b.name)}</a>
-          `).join('')}
-          <a class="chip-btn" href="${link(repo, 'compare', { base: 'main~1', head: 'main' })}">main~1 ← main</a>
-        </div>
-      ` : ''}
-
-      <div id="diffOutput" class="diff-output-container">
-        <div class="loading-state">Carregando comparação…</div>
+        `}
       </div>
-    </div>
-  `, 'main', branches, tags, visibility, repoType);
+    `;
+  }
 
-  const form = document.querySelector('#compareForm');
-  const out = document.querySelector('#diffOutput');
-
-  const doCompare = async (baseVal, headVal) => {
-    out.innerHTML = '<div class="loading-state">Calculando diff…</div>';
-    try {
-      const d = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(baseVal)}&head=${encodeURIComponent(headVal)}`);
-      out.innerHTML = renderDiff(d.diff);
-    } catch (err) {
-      out.innerHTML = `<div class="error-state"><strong>Erro na comparação:</strong> ${esc(err.message)}</div>`;
-    }
-  };
-
-  form.onsubmit = e => {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const b = fd.get('base').trim();
-    const h = fd.get('head').trim();
-    location.hash = link(repo, 'compare', { base: b, head: h });
-    doCompare(b, h);
-  };
-
-  doCompare(defaultBase, defaultHead);
-}
-
-async function infra() {
-  const d = await api('/api/v1/ha');
   app.innerHTML = `
-    <section class="hero-github">
-      <div class="hero-content">
-        <div class="eyebrow">Observabilidade e Alta Disponibilidade</div>
-        <h1>Infraestrutura do Cluster</h1>
-        <p class="hero-desc">Monitoramento de integridade dos nós e sincronização dos repositórios do SisTer Git.</p>
-      </div>
-      <div class="hero-badges">
-        <span class="status-pill status-warn">● Monitoramento Inicial</span>
-      </div>
-    </section>
-
-    <div class="infra-panel">
-      <div class="infra-banner">
-        <b>Topologia Ativa:</b> Servidor de produção com réplica planejada. Nenhuma operação perigosa é permitida nesta interface.
+    <header class="editorial-doc-header">
+      <div class="doc-kicker-bar">
+        <span class="doc-kicker">SisTer Git Editorial · Identidade Documental Persistente</span>
+        <div class="badges-row">
+          ${visBadge(edData.visibility || 'public')}
+          ${stageBadge}
+        </div>
       </div>
 
-      <div class="nodes-grid">
-        ${d.nodes.map(n => `
-          <div class="node-card">
-            <div class="node-header">
-              <span class="status-badge">${esc(n.status)}</span>
-              <h3>${esc(n.name)}</h3>
+      <h1 class="doc-title-main">${esc(title)}</h1>
+      <div class="doc-authors-line">
+        <strong>${esc(authors)}</strong> · <em>Laboratório de Ecologia e Conservação (LABECO)</em>
+      </div>
+
+      <div class="doc-provenance-box">
+        <span>Identificador: <strong>${esc(repo)}</strong> (refs/heads/main)</span>
+        <span>Código Git: <a href="#/r/${encodeURIComponent(repo)}/code" style="color:var(--blue); text-decoration:underline;">Ver arquivos brutos ➔</a></span>
+      </div>
+    </header>
+
+    <nav class="doc-tabs-bar" aria-label="Navegação do Artigo">
+      <a href="#/editorial/${encodeURIComponent(repo)}/manuscript" class="doc-tab ${tab === 'manuscript' ? 'active' : ''}">
+        <span>📖 Leitura &amp; Manuscrito</span>
+      </a>
+      <a href="#/editorial/${encodeURIComponent(repo)}/editor" class="doc-tab ${tab === 'editor' ? 'active' : ''}">
+        <span>✎ Editor Interativo</span>
+      </a>
+      <a href="#/editorial/${encodeURIComponent(repo)}/reviews" class="doc-tab ${tab === 'reviews' ? 'active' : ''}">
+        <span>⚖ Pareceres &amp; Revisão</span>
+        <span class="tab-badge-count">${reviews.length}</span>
+      </a>
+      <a href="#/editorial/${encodeURIComponent(repo)}/publish" class="doc-tab ${tab === 'publish' ? 'active' : ''}">
+        <span>🚀 Edições &amp; Publicação</span>
+        <span class="tab-badge-count">${editions.length}</span>
+      </a>
+    </nav>
+
+    <div id="docTabHost">
+      ${tabContent}
+    </div>
+  `;
+
+  if (tab === 'editor') {
+    handleEditorInput(rawMarkdown);
+  }
+}
+
+window.handleEditorInput = function(val) {
+  const p = document.querySelector('#livePreviewPane');
+  const count = document.querySelector('#charCount');
+  if (p) p.innerHTML = renderMarkdown(val);
+  if (count) count.textContent = `${val.length} caracteres`;
+};
+
+window.handleSaveManuscript = async function(e, repo) {
+  e.preventDefault();
+  const textarea = document.querySelector('#liveEditorTextarea');
+  const author = document.querySelector('#commitAuthor')?.value.trim();
+  const message = document.querySelector('#commitMsg')?.value.trim();
+  const btn = document.querySelector('#btnSaveManuscript');
+
+  if (!textarea || !btn) return;
+  const content = textarea.value;
+
+  btn.disabled = true;
+  btn.innerHTML = 'Salvando no Git...';
+
+  try {
+    const res = await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/save`, {
+      filename: 'manuscrito.md',
+      content,
+      author: author || 'Pesquisador LABECO',
+      message: message || 'Atualização editorial do manuscrito'
+    });
+    showToast(`✓ Nova versão salva no Git! Commit: ${res.short_hash || ''}`);
+    btn.innerHTML = '✓ Versão Salva!';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Salvar Versão no Git ⎇</span>';
+    }, 1800);
+  } catch (err) {
+    alert('Erro ao salvar versão: ' + err.message);
+    btn.disabled = false;
+    btn.innerHTML = '<span>Salvar Versão no Git ⎇</span>';
+  }
+};
+
+// ============================================================================
+// VIEW 3: REPOSITÓRIOS DE SOFTWARE (GIT BARE WORKSPACE)
+// ============================================================================
+
+async function renderReposDashboard() {
+  const data = await api('/api/v1/repos');
+  allReposCache = data.repositories || [];
+
+  app.innerHTML = `
+    <div class="section-head-bar">
+      <div>
+        <h2 class="section-title">Repositórios Git</h2>
+        <p class="section-sub">Repositórios de código e infraestrutura técnica sob custódia do nó LABECO</p>
+      </div>
+      <button type="button" class="btn-primary" onclick="openNewProjectModal('software')">
+        + Novo Repositório
+      </button>
+    </div>
+
+    <div class="repo-table-container">
+      ${allReposCache.map(r => `
+        <div class="repo-row" data-search="${esc(r.name.toLowerCase())}">
+          <div class="repo-left-meta">
+            <span style="font-size:1.3rem;">${r.type === 'editorial' ? '📖' : '📁'}</span>
+            <div>
+              <a href="#/r/${encodeURIComponent(r.name)}/code" class="repo-name-link">
+                ${esc(r.name)}
+              </a>
+              <div class="repo-desc-sub">
+                ${r.last_commit ? esc(r.last_commit.subject) : 'Repositório inicializado'}
+              </div>
             </div>
-            <div class="node-body">
-              <div class="node-row"><span class="label">Função:</span> <span>${esc(n.role)}</span></div>
-              <div class="node-row"><span class="label">Protocolo:</span> <span>Git via SSH (somente chaves Ed25519)</span></div>
+          </div>
+          <div class="repo-stats-right">
+            ${visBadge(r.visibility)}
+            ${r.type === 'editorial' ? '<span class="badge-edition-tag">Editorial</span>' : ''}
+            <span>${r.branches} branches</span>
+            <span>${r.tags} tags</span>
+            <span>${fmt(r.size_bytes)}</span>
+            <span>${timeAgo(r.last_commit?.date)}</span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ============================================================================
+// VIEW 4: REPO CODE, COMMITS, REFS, COMPARE (GITHUB-LIKE)
+// ============================================================================
+
+async function renderRepoCode(route) {
+  const { repo, tab, ref, path, base, head } = route;
+  crumbCurrent.innerHTML = `<a href="#/repos">Repositórios</a> / <strong>${esc(repo)}</strong>`;
+
+  const [refsData, treeData] = await Promise.all([
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
+    tab === 'code' ? api(`/api/v1/repos/${encodeURIComponent(repo)}/tree?ref=${encodeURIComponent(ref || 'HEAD')}&path=${encodeURIComponent(path || '')}`).catch(() => null) : null
+  ]);
+
+  let innerContent = '';
+
+  if (tab === 'code') {
+    if (path && treeData && !treeData.entries) {
+      // Blob view
+      const blob = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=${encodeURIComponent(ref || 'HEAD')}&path=${encodeURIComponent(path)}`);
+      innerContent = `
+        <div class="blob-viewer">
+          <div class="blob-head">
+            <span><strong>${esc(path)}</strong> (${blob.binary ? 'Arquivo binário' : fmt(blob.size_bytes)})</span>
+            <a href="#/r/${encodeURIComponent(repo)}/code?ref=${encodeURIComponent(ref || '')}" class="btn-cancel" style="padding:4px 8px; font-size:0.75rem;">Voltar à pasta</a>
+          </div>
+          ${blob.binary ? `<div style="padding:40px; text-align:center; color:var(--muted);">Arquivo binário não editável diretamente</div>` : `
+            <pre class="blob-code"><code>${esc(blob.content)}</code></pre>
+          `}
+        </div>
+      `;
+    } else {
+      // Directory tree
+      const entries = treeData?.entries || [];
+      innerContent = `
+        <table class="tree-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Tipo</th>
+              <th>SHA</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${path ? `
+              <tr>
+                <td colspan="3"><a href="#/r/${encodeURIComponent(repo)}/code?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent(path.split('/').slice(0,-1).join('/'))}">.. (diretório anterior)</a></td>
+              </tr>
+            ` : ''}
+            ${entries.map(e => `
+              <tr>
+                <td>
+                  <a href="#/r/${encodeURIComponent(repo)}/code?ref=${encodeURIComponent(ref)}&path=${encodeURIComponent((path ? path + '/' : '') + e.name)}">
+                    ${e.type === 'tree' ? '📁 ' : '📄 '} <strong>${esc(e.name)}</strong>
+                  </a>
+                </td>
+                <td><span style="font-size:0.75rem; color:var(--muted);">${esc(e.type)}</span></td>
+                <td><code style="font-size:0.75rem; color:var(--muted);">${esc(e.hash.substr(0, 8))}</code></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+  } else if (tab === 'commits') {
+    const commitsData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/commits?ref=${encodeURIComponent(ref || 'HEAD')}`);
+    const commits = commitsData.commits || [];
+    innerContent = `
+      <div class="repo-table-container">
+        ${commits.map(c => `
+          <div class="repo-row">
+            <div>
+              <strong>${esc(c.subject)}</strong>
+              <div style="font-size:0.75rem; color:var(--muted); margin-top:2px;">
+                ${esc(c.author)} &lt;${esc(c.email)}&gt; · ${timeAgo(c.date)}
+              </div>
+            </div>
+            <div>
+              <code style="background:var(--surface-alt); padding:3px 7px; border-radius:4px; font-size:0.75rem;">${esc(c.short_hash)}</code>
             </div>
           </div>
         `).join('')}
       </div>
+    `;
+  } else if (tab === 'compare') {
+    const b = base || 'HEAD~1';
+    const h = head || 'HEAD';
+    const diffData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(b)}&head=${encodeURIComponent(h)}`).catch(() => ({ files: [] }));
+    const files = diffData.files || [];
+    innerContent = `
+      <div style="margin-bottom:16px;">
+        <span style="font-size:0.9rem; font-weight:700; color:var(--navy);">Comparando ${esc(b)} ➔ ${esc(h)} (${diffData.total_files || files.length} arquivos alterados)</span>
+      </div>
+      ${files.map(f => `
+        <div class="diff-box">
+          <div class="diff-file-head">${esc(f.path)}</div>
+          <div>
+            ${f.lines.map(l => {
+              const cls = l.type === 'add' ? 'diff-line-add' : (l.type === 'del' ? 'diff-line-del' : (l.type === 'hunk' ? 'diff-hunk' : ''));
+              return `<div class="diff-line ${cls}">${esc(l.text)}</div>`;
+            }).join('')}
+          </div>
+        </div>
+      `).join('')}
+    `;
+  }
+
+  app.innerHTML = `
+    <header class="editorial-doc-header" style="padding:20px 24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <h1 style="font-size:1.4rem; color:var(--navy); margin:0;">${esc(repo)}</h1>
+          <p style="margin:2px 0 0; color:var(--muted); font-size:0.8rem;">Repositório bare gerenciado pelo nó local SisTer Git</p>
+        </div>
+        <a href="#/editorial/${encodeURIComponent(repo)}" class="btn-primary" style="font-size:0.8rem;">
+          Ir para Espaço Editorial ➔
+        </a>
+      </div>
+    </header>
+
+    <nav class="doc-tabs-bar">
+      <a href="#/r/${encodeURIComponent(repo)}/code" class="doc-tab ${tab === 'code' ? 'active' : ''}">📄 Código</a>
+      <a href="#/r/${encodeURIComponent(repo)}/commits" class="doc-tab ${tab === 'commits' ? 'active' : ''}">⎇ Commits</a>
+      <a href="#/r/${encodeURIComponent(repo)}/compare" class="doc-tab ${tab === 'compare' ? 'active' : ''}">⇄ Comparar Diffs</a>
+    </nav>
+
+    <div>
+      ${innerContent}
     </div>
   `;
 }
 
-async function render() {
-  updateTopAuth();
-  app.innerHTML = '<div class="loading-state">Consultando SisTer Git…</div>';
-  try {
-    const p = parseHash();
-    if (!p.repo) {
-      if (p.tab === 'infra') return await infra();
-      return await home();
-    }
-    if (p.repo === 'infra') return await infra();
+// ============================================================================
+// VIEW 5: INFRAESTRUTURA & HA
+// ============================================================================
 
-    if (p.tab === 'code') return await code(p.repo, p.path, p.ref);
-    if (p.tab === 'editorial') return await editorial(p.repo);
-    if (p.tab === 'blob') return await blob(p.repo, p.path, p.ref);
-    if (p.tab === 'commits') return await commits(p.repo, p.ref);
-    if (p.tab === 'refs') return await refs(p.repo);
-    if (p.tab === 'compare') return await compare(p.repo, p.base, p.head);
+async function renderInfra() {
+  const ha = await api('/api/v1/ha').catch(() => ({ nodes: [] }));
+  app.innerHTML = `
+    <header class="hero-editorial" style="background:linear-gradient(130deg, #071e38, #0e3d5c);">
+      <div class="hero-kicker">ALTA DISPONIBILIDADE E REPLICAÇÃO</div>
+      <h1 class="hero-title">Infraestrutura SisTer Git</h1>
+      <p class="hero-desc">
+        Topologia de dois nós com custódia distribuída e sincronização de repositórios Git entre LABECO-SRV e réplicas parceiras.
+      </p>
+    </header>
 
-    throw Error('Página ou guia inexistente');
-  } catch (err) {
-    app.innerHTML = `
-      <div class="error-container">
-        <h2>Não foi possível carregar</h2>
-        <p>${esc(err.message)}</p>
-        <a class="btn-primary" href="#/">Voltar aos repositórios</a>
-      </div>
-    `;
-  }
+    <div class="editorial-grid">
+      ${ha.nodes.map(n => `
+        <div class="article-card">
+          <h3 style="color:var(--navy); margin:0 0 6px;">${esc(n.name)}</h3>
+          <p style="color:var(--muted); font-size:0.82rem; margin:0 0 12px;">Papel: <strong>${esc(n.role)}</strong></p>
+          <div class="badges-row">
+            <span class="badge-stage stage-published">Ativo</span>
+            <span class="badge-vis vis-public">C++26</span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
 }
 
+// ============================================================================
+// MODALS LOGIC
+// ============================================================================
+
+window.openModal = id => document.querySelector('#' + id)?.classList.remove('hidden');
+window.closeModal = id => document.querySelector('#' + id)?.classList.add('hidden');
+
+window.openNewProjectModal = function(defaultType = 'editorial') {
+  const sel = document.querySelector('#newProjType');
+  if (sel) sel.value = defaultType;
+  toggleProjectFields(defaultType);
+  openModal('modalNewProject');
+};
+
+window.toggleProjectFields = function(type) {
+  const f = document.querySelector('#editorialSpecificFields');
+  if (f) f.style.display = type === 'editorial' ? 'block' : 'none';
+};
+
+window.handleCreateProject = async function(e) {
+  e.preventDefault();
+  const name = document.querySelector('#newProjName').value.trim();
+  const type = document.querySelector('#newProjType').value;
+  const title = document.querySelector('#newProjTitle')?.value.trim();
+  const author = document.querySelector('#newProjAuthor')?.value.trim();
+  const desc = document.querySelector('#newProjDesc')?.value.trim();
+  const vis = document.querySelector('#newProjVisibility')?.value;
+  const fb = document.querySelector('#newProjFeedback');
+  const btn = document.querySelector('#btnSubmitProject');
+
+  btn.disabled = true;
+  btn.textContent = 'Criando no Git...';
+
+  try {
+    await apiPost('/api/v1/repos', {
+      name,
+      type,
+      title: title || name,
+      author: author || 'Pesquisador LABECO',
+      description: desc,
+      visibility: vis
+    });
+    closeModal('modalNewProject');
+    showToast(`✓ Projeto '${name}' criado com sucesso no SisTer Git!`);
+    if (type === 'editorial') {
+      location.hash = `#/editorial/${encodeURIComponent(name)}/editor`;
+    } else {
+      location.hash = `#/r/${encodeURIComponent(name)}/code`;
+    }
+  } catch (err) {
+    if (fb) {
+      fb.textContent = err.message;
+      fb.classList.remove('hidden');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Criar Projeto Git ✓';
+  }
+};
+
+window.openNewReviewModal = function(repo) {
+  document.querySelector('#reviewRepoName').value = repo;
+  openModal('modalNewReview');
+};
+
+window.handleCreateReview = async function(e) {
+  e.preventDefault();
+  const repo = document.querySelector('#reviewRepoName').value;
+  const reviewer = document.querySelector('#reviewReviewer').value.trim();
+  const rec = document.querySelector('#reviewRecommendation').value;
+  const summary = document.querySelector('#reviewSummary').value.trim();
+  const authorResp = document.querySelector('#reviewAuthorResp')?.value.trim();
+  const btn = document.querySelector('#btnSubmitReview');
+
+  btn.disabled = true;
+  btn.textContent = 'Registrando...';
+
+  try {
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/review`, {
+      reviewer,
+      recommendation: rec,
+      summary,
+      author_response: authorResp
+    });
+    closeModal('modalNewReview');
+    showToast('✓ Parecer registrado no Git com proveniência!');
+    renderEditorialDoc(repo, 'reviews');
+  } catch (err) {
+    alert('Erro ao registrar parecer: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Registrar Parecer no Git ✓';
+  }
+};
+
+window.openPublishModal = function(repo) {
+  document.querySelector('#publishRepoName').value = repo;
+  openModal('modalPublish');
+};
+
+window.handlePublishEdition = async function(e) {
+  e.preventDefault();
+  const repo = document.querySelector('#publishRepoName').value;
+  const tag = document.querySelector('#publishTag').value.trim();
+  const title = document.querySelector('#publishTitle').value.trim();
+  const notes = document.querySelector('#publishNotes').value.trim();
+  const btn = document.querySelector('#btnSubmitPublish');
+
+  btn.disabled = true;
+  btn.textContent = 'Publicando...';
+
+  try {
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/publish`, {
+      tag,
+      title,
+      notes
+    });
+    closeModal('modalPublish');
+    showToast(`🚀 Edição '${tag}' publicada e homologada no Git!`);
+    renderEditorialDoc(repo, 'publish');
+  } catch (err) {
+    alert('Erro ao homologar edição: ' + err.message);
+    btn.disabled = false;
+    btn.textContent = 'Publicar Edição 🚀';
+  }
+};
+
+window.openAuthModal = function() {
+  document.querySelector('#authTokenInput').value = getToken();
+  openModal('modalAuth');
+};
+
+window.handleSaveToken = async function(e) {
+  e.preventDefault();
+  const t = document.querySelector('#authTokenInput').value.trim();
+  const fb = document.querySelector('#authModalFeedback');
+  setToken(t);
+
+  try {
+    const s = await api('/api/v1/auth/status');
+    if (s.auth_required && !s.authenticated) {
+      setToken('');
+      if (fb) {
+        fb.textContent = 'Token recusado pelo servidor.';
+        fb.classList.remove('hidden');
+      }
+      return;
+    }
+    closeModal('modalAuth');
+    showToast('✓ Token autenticado com sucesso!');
+    updateAuthStatus();
+    render();
+  } catch (err) {
+    setToken('');
+    if (fb) {
+      fb.textContent = err.message;
+      fb.classList.remove('hidden');
+    }
+  }
+};
+
+window.handleClearToken = function() {
+  setToken('');
+  closeModal('modalAuth');
+  showToast('Token removido.');
+  updateAuthStatus();
+  render();
+};
+
+window.handleSearch = function(q) {
+  const query = q.trim().toLowerCase();
+  document.querySelectorAll('[data-search]').forEach(el => {
+    const text = el.getAttribute('data-search') || '';
+    el.style.display = !query || text.includes(query) ? '' : 'none';
+  });
+};
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
 window.addEventListener('hashchange', render);
-render();
+window.addEventListener('DOMContentLoaded', () => {
+  updateAuthStatus();
+  render();
+});
