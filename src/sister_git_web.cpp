@@ -372,7 +372,7 @@ static bool send_otp_email(const std::string &to, const std::string &code, std::
         << "Este codigo e valido por 10 minutos para autorizar operacoes de escrita e acesso aos seus projetos privados.\r\n"
         << "Se voce nao solicitou este codigo, por favor desconsidere este e-mail.\r\n\r\n"
         << "--\r\n"
-        << "SisTer Git Editorial · Laboratorio de Ecologia e Conservacao (LABECO)\r\n"
+        << "SisTer Git Editorial · Laboratorio de Estudos em AgroEcologia e Recursos Naturais (LABECO)\r\n"
         << "Sempre pronto. Sempre incompleto!\r\n";
   }
 
@@ -541,7 +541,7 @@ static Response create_repo(const std::string &name, const std::string &type, co
   if (type == "editorial") {
     std::string init_doc = "# " + doc_title + "\n\n"
                            "**" + auth_name + "**  \n"
-                           "*Laboratório de Ecologia e Conservação (LABECO)*\n\n---\n\n"
+                           "*Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)*\n\n---\n\n"
                            "## Resumo\n\nInicie aqui o resumo do seu artigo ou relatório de pesquisa.\n\n---\n\n"
                            "## 1. Introdução\n\nDescreva a contextualização, o problema ecológico e as hipóteses investigadas.\n\n"
                            "## 2. Metodologia e Delineamento Amostral\n\nDetalhe os procedimentos experimentais, coleta de dados botânicos e análises estatísticas.\n\n"

@@ -1,7 +1,7 @@
 # SisTer Git Editorial (SGE)
 
 **Gestão editorial, proveniência e evolução documental baseada em Git**  
-*Laboratório de Ecologia e Conservação (LABECO) · Outubro de 2026*
+*Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO) · Outubro de 2026*
 
 > *"Versionar um documento significa registrar o que mudou.*  
 > *Gerir um processo editorial significa registrar como, por que, por quem e sob quais critérios o documento evoluiu."*

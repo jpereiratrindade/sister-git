@@ -529,7 +529,7 @@ async function renderHomePage() {
         <div>
           <div class="home-manifesto-quote">“Sempre pronto. Sempre incompleto!”</div>
           <p class="home-manifesto-text">
-            No Laboratório de Ecologia e Conservação (LABECO), consideramos que o conhecimento científico e o código não são arquivos isolados, mas o resultado contínuo de um processo rigoroso de elaboração, diálogo entre pares, revisão e homologação.
+            No Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO), consideramos que o conhecimento científico e o código não são arquivos isolados, mas o resultado contínuo de um processo rigoroso de elaboração, diálogo entre pares, revisão e homologação.
           </p>
         </div>
         <div>
@@ -865,7 +865,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
 
       <h1 class="doc-title-main">${esc(title)}</h1>
       <div class="doc-authors-line">
-        <strong>${esc(authors)}</strong> · <em>Laboratório de Ecologia e Conservação (LABECO)</em>
+        <strong>${esc(authors)}</strong> · <em>Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)</em>
       </div>
 
       <div class="doc-provenance-box">
