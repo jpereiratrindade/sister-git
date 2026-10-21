@@ -54,8 +54,48 @@ struct AuthUser {
 
 static std::string repo_root, web_root, auth_token;
 static size_t max_output = 4 * 1024 * 1024;
+static size_t max_upload = 64 * 1024 * 1024;
 static SmtpConfig g_smtp;
 static sqlite3 *g_db = nullptr;
+
+static std::string base64_decode(const std::string &in) {
+  std::string out;
+  std::vector<int> T(256, -1);
+  const std::string b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  for (int i = 0; i < 64; i++) T[static_cast<unsigned char>(b64[i])] = i;
+
+  int val = 0, valb = -8;
+  for (unsigned char c : in) {
+    if (std::isspace(c) || c == '=') continue;
+    if (T[c] == -1) break;
+    val = (val << 6) + T[c];
+    valb += 6;
+    if (valb >= 0) {
+      out.push_back(char((val >> valb) & 0xFF));
+      valb -= 8;
+    }
+  }
+  return out;
+}
+
+static std::string mime_type_from_filename(const std::string &filename) {
+  size_t dot = filename.rfind('.');
+  if (dot == std::string::npos) return "application/octet-stream";
+  std::string ext = filename.substr(dot);
+  std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+  if (ext == ".docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (ext == ".odt") return "application/vnd.oasis.opendocument.text";
+  if (ext == ".pdf") return "application/pdf";
+  if (ext == ".tex") return "text/x-tex; charset=utf-8";
+  if (ext == ".md" || ext == ".markdown") return "text/markdown; charset=utf-8";
+  if (ext == ".txt") return "text/plain; charset=utf-8";
+  if (ext == ".csv") return "text/csv; charset=utf-8";
+  if (ext == ".json") return "application/json; charset=utf-8";
+  if (ext == ".png") return "image/png";
+  if (ext == ".jpg" || ext == ".jpeg") return "image/jpeg";
+  if (ext == ".svg") return "image/svg+xml";
+  return "application/octet-stream";
+}
 
 static std::string json(const std::string &s) {
   std::string out = "\"";
@@ -765,6 +805,19 @@ static Response archive(const std::string &name, const std::map<std::string, std
   return {200, content_type, r.out, {"Content-Disposition: attachment; filename=\"" + filename + "\""}};
 }
 
+static Response raw(const std::string &name, const std::map<std::string, std::string> &q) {
+  std::string ref = q.count("ref") ? q.at("ref") : "HEAD", path = q.count("path") ? q.at("path") : "";
+  if (!valid_revision(ref) || !valid_path(path) || path.empty()) return error(400, "Parâmetros inválidos");
+  std::string spec = ref + ":" + path;
+  auto r = run({"git", "--git-dir=" + git_dir(name), "show", spec}, 64 * 1024 * 1024);
+  if (r.status) return error(404, "Arquivo não encontrado");
+
+  size_t slash = path.rfind('/');
+  std::string filename = (slash == std::string::npos) ? path : path.substr(slash + 1);
+  std::string mime = mime_type_from_filename(filename);
+  return {200, mime, r.out, {"Content-Disposition: attachment; filename=\"" + filename + "\""}};
+}
+
 static Response static_file(std::string path) {
   if (path == "/") path = "/index.html";
   if (path.find("..") != std::string::npos) return error(400, "Caminho inválido");
@@ -851,6 +904,7 @@ static Response route(const std::string &target, const AuthUser &user) {
     if (action == "compare") return compare(name, q);
     if (action == "editorial") return editorial(name);
     if (action == "archive") return archive(name, q);
+    if (action == "raw") return raw(name, q);
     return error(404, "Rota não encontrada");
   }
 
@@ -1185,6 +1239,47 @@ static Response route_post(const std::string &target, const std::string &, const
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"tag\":" + json(tag) + "}"};
     }
 
+    if (action == "upload") {
+      if (!user.authenticated) return error(401, "Autenticação requerida para envio de arquivos");
+      if (repo_visibility(name) == "private" && user.role != "admin" && repo_owner(name) != user.email) {
+        return error(403, "Sem permissão para alterar este repositório privado");
+      }
+
+      std::string filename = json_extract(body, "filename");
+      std::string b64 = json_extract(body, "content_base64");
+      std::string commit_msg = json_extract(body, "commit_msg");
+      std::string is_main = json_extract(body, "is_main");
+      if (filename.empty() || !valid_path(filename)) return error(400, "Nome de arquivo inválido");
+      if (commit_msg.empty()) commit_msg = "Upload de arquivo: " + filename;
+
+      std::string content = base64_decode(b64);
+      std::string author_name = user.name.empty() ? "Pesquisador LABECO" : user.name;
+      std::string author_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
+
+      auto r = git_commit_file(name, filename, content, commit_msg, author_name, author_email);
+      if (r.status != 0) return error(500, "Falha ao gravar arquivo no Git: " + r.out);
+
+      if (is_main == "true") {
+        auto m_res = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
+        if (m_res.status == 0) {
+          std::string m = m_res.out;
+          size_t doc_main_pos = m.find("\"document_main\":");
+          if (doc_main_pos != std::string::npos) {
+            size_t val_start = m.find('"', doc_main_pos + 16);
+            if (val_start != std::string::npos) {
+              size_t val_end = m.find('"', val_start + 1);
+              if (val_end != std::string::npos) {
+                m.replace(val_start + 1, val_end - val_start - 1, filename);
+                git_commit_file(name, ".sister-editorial.json", m, "editorial: definir " + filename + " como documento principal", author_name, author_email);
+              }
+            }
+          }
+        }
+      }
+
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"filename\":" + json(filename) + "}"};
+    }
+
     return error(404, "Ação não encontrada");
   }
 
@@ -1227,7 +1322,7 @@ static void client(int fd) {
       std::string len_str = header_part.substr(cl_pos + 16, line_end - (cl_pos + 16));
       try {
         size_t content_length = std::stoul(len_str);
-        while (body.size() < content_length && body.size() < max_output) {
+        while (body.size() < content_length && body.size() < max_upload) {
           ssize_t n = read(fd, b, sizeof(b));
           if (n <= 0) break;
           body.append(b, n);

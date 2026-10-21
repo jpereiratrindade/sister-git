@@ -138,6 +138,17 @@ file "$TMP/artigo.zip" | grep -qi 'zip'
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=tar.gz" > "$TMP/artigo.tar.gz"
 file "$TMP/artigo.tar.gz" | grep -qi 'gzip'
 
+# 7. Testar upload de documento (DOCX / ODT / TEX / MD) e download raw
+B64_SAMPLE=$(printf 'PK\x03\x04teste-docx-binario' | base64 -w0)
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d "{\"filename\":\"artigo-completo.docx\",\"content_base64\":\"$B64_SAMPLE\",\"commit_msg\":\"Upload do manuscrito original em DOCX\",\"is_main\":\"true\"}" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload" > "$TMP/upload_resp.json"
+grep -q '"ok":true' "$TMP/upload_resp.json"
+
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=artigo-completo.docx" > "$TMP/artigo_baixado.docx"
+grep -q 'teste-docx-binario' "$TMP/artigo_baixado.docx"
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'artigo-completo.docx'
+
 if SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" "$HERE/build/sister-git-web" --bind 0.0.0.0 --port $((PORT+1)) >"$TMP/public.log" 2>&1; then echo '[ERRO] bind público aceito sem token' >&2; exit 1; fi
 git --git-dir="$TMP/repos/MORFO.git" fsck --full >/dev/null
 git --git-dir="$TMP/repos/artigo-teste.git" fsck --full >/dev/null

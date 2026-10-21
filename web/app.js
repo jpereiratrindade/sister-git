@@ -699,16 +699,44 @@ window.toggleRepoVisibility = async function(repoName, newVisibility) {
 // VIEW 2: ESPAÇO DOCUMENTAL (LEITURA, EDITOR, PARECERES, PUBLICAÇÃO)
 // ============================================================================
 
+function formatIcon(ext) {
+  switch (ext) {
+    case 'docx': case 'doc': return '📘';
+    case 'odt': return '📙';
+    case 'pdf': return '📕';
+    case 'tex': return '📐';
+    case 'md': case 'markdown': return '📄';
+    case 'txt': return '📝';
+    case 'csv': case 'xlsx': case 'ods': return '📊';
+    case 'png': case 'jpg': case 'jpeg': case 'svg': return '🖼️';
+    default: return '📁';
+  }
+}
+
+function formatLabel(ext) {
+  switch (ext) {
+    case 'docx': case 'doc': return 'Microsoft Word (.docx)';
+    case 'odt': return 'LibreOffice Writer (.odt)';
+    case 'pdf': return 'Documento PDF (.pdf)';
+    case 'tex': return 'LaTeX (.tex)';
+    case 'md': case 'markdown': return 'Markdown (.md)';
+    case 'txt': return 'Texto Simples (.txt)';
+    case 'csv': return 'Planilha / Dados CSV (.csv)';
+    default: return (ext || 'ARQUIVO').toUpperCase();
+  }
+}
+
 async function renderEditorialDoc(repo, tab = 'manuscript') {
   crumbCurrent.innerHTML = `<a href="#/editorial">Espaço Editorial</a> / <strong>${esc(repo)}</strong>`;
 
-  const [edData, blobData, refsData] = await Promise.all([
+  const [edData, treeData, refsData] = await Promise.all([
     api(`/api/v1/repos/${encodeURIComponent(repo)}/editorial`),
-    api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=HEAD&path=manuscrito.md`).catch(() => null),
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/tree?ref=HEAD`).catch(() => ({ entries: [] })),
     api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`).catch(() => ({ branches: [], tags: [] }))
   ]);
 
   const manifest = edData.manifest || {};
+  const entries = treeData.entries || [];
   const title = manifest.title || repo;
   const authors = manifest.authors && manifest.authors.length
     ? manifest.authors.map(a => a.name).join(', ')
@@ -727,6 +755,17 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
     }
   }
   const reviews = manifest.reviews || [];
+
+  // Detect main document
+  let mainDoc = manifest.document_main;
+  if (!mainDoc || !entries.some(e => e.name === mainDoc)) {
+    const candidate = entries.find(e => /\.(docx|odt|tex|md|txt)$/i.test(e.name));
+    mainDoc = candidate ? candidate.name : (entries.length ? entries[0].name : 'manuscrito.md');
+  }
+  const ext = (mainDoc.split('.').pop() || '').toLowerCase();
+  const isTextDoc = /^(md|markdown|txt|tex)$/i.test(ext);
+
+  const blobData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=HEAD&path=${encodeURIComponent(mainDoc)}`).catch(() => null);
   const rawMarkdown = blobData && !blobData.binary ? blobData.content : '# ' + title + '\n\nInicie a escrita do seu manuscrito.';
 
   const stageBadge = stage === 'published'
@@ -739,13 +778,149 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
 
   if (tab === 'manuscript') {
     tabContent = `
-      <article class="manuscript-reader markdown-body">
-        ${renderMarkdown(rawMarkdown)}
-        <hr>
-        <footer style="font-size:0.8rem; color:var(--muted); text-align:center; padding-top:10px;">
-          <em>Preservado sob governança SisTer Git Editorial · LABECO · Sempre pronto. Sempre incompleto!</em>
-        </footer>
-      </article>
+      <div class="manuscript-file-card">
+        <div class="manuscript-file-info">
+          <div class="manuscript-icon-box">${formatIcon(ext)}</div>
+          <div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <h3 style="margin:0; font-size:1.15rem; color:var(--navy);">${esc(mainDoc)}</h3>
+              <span class="badge-edition-tag">Documento Principal</span>
+            </div>
+            <p style="margin:3px 0 0; color:var(--muted); font-size:0.8rem;">
+              Formato: <strong>${formatLabel(ext)}</strong> · Tamanho: ${fmt(blobData?.size || 0)}
+            </p>
+          </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+          <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(mainDoc)}" class="btn-primary" style="padding:8px 16px; font-size:0.84rem; text-decoration:none;" title="Baixar arquivo original na íntegra">
+            ⬇ Baixar Arquivo Original (.${esc(ext)})
+          </a>
+          <a href="#/editorial/${encodeURIComponent(repo)}/upload" class="btn-cancel" style="padding:8px 16px; font-size:0.84rem; text-decoration:none; background:#fff;">
+            📤 Enviar Nova Versão (.docx, .odt...)
+          </a>
+        </div>
+      </div>
+
+      ${isTextDoc && blobData && !blobData.binary ? `
+        <article class="manuscript-reader markdown-body">
+          ${renderMarkdown(rawMarkdown)}
+          <hr>
+          <footer style="font-size:0.8rem; color:var(--muted); text-align:center; padding-top:10px;">
+            <em>Preservado sob governança SisTer Git Editorial · LABECO · Sempre pronto. Sempre incompleto!</em>
+          </footer>
+        </article>
+      ` : `
+        <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:40px 32px; text-align:center; max-width:820px; margin:0 auto 30px; box-shadow:var(--shadow-sm);">
+          <span style="font-size:3.2rem; display:block; margin-bottom:14px;">${formatIcon(ext)}</span>
+          <h2 style="color:var(--navy); margin:0 0 10px; font-size:1.3rem;">Manuscrito em Formato ${formatLabel(ext)}</h2>
+          <p style="color:var(--muted); font-size:0.92rem; max-width:580px; margin:0 auto 24px; line-height:1.65;">
+            Este documento é redigido externamente no seu editor de texto preferido (Word ou LibreOffice). Baixe o arquivo original abaixo, faça suas revisões localmente e envie a nova versão na aba <strong>Upload &amp; Arquivos</strong> para registrar o histórico com integridade e proveniência Git.
+          </p>
+          <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
+            <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(mainDoc)}" class="btn-primary" style="padding:10px 22px; font-size:0.9rem; text-decoration:none;">
+              ⬇ Baixar ${esc(mainDoc)} (${fmt(blobData?.size || 0)})
+            </a>
+            <a href="#/editorial/${encodeURIComponent(repo)}/upload" class="btn-cancel" style="padding:10px 22px; font-size:0.9rem; text-decoration:none; background:#fff;">
+              📤 Enviar Nova Versão Revisada
+            </a>
+          </div>
+        </div>
+      `}
+    `;
+  } else if (tab === 'upload') {
+    tabContent = `
+      <div style="max-width:960px; margin:0 auto 30px;">
+        <div class="reviews-toolbar" style="margin-bottom:20px;">
+          <div>
+            <h3 style="margin:0; color:var(--navy); font-size:1.15rem;">Upload &amp; Custódia de Arquivos do Projeto</h3>
+            <p style="margin:3px 0 0; color:var(--muted); font-size:0.82rem;">Envie manuscritos em Word (.docx), LibreOffice (.odt), LaTeX (.tex) ou Markdown (.md) diretamente para a árvore Git</p>
+          </div>
+        </div>
+
+        <form id="formUploadDoc" onsubmit="handleUploadDocument(event, '${esc(repo)}')" style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:28px; box-shadow:var(--shadow-sm);">
+          <div class="upload-dropzone" onclick="document.querySelector('#uploadFileInput').click()" ondragover="event.preventDefault()" ondrop="handleDropFile(event)">
+            <span class="upload-dropzone-icon">📥</span>
+            <strong style="color:var(--navy); font-size:1rem; display:block;">Clique ou arraste o arquivo aqui para enviar</strong>
+            <span style="font-size:0.8rem; color:var(--muted); display:block; margin-top:4px;">Suporta processadores de texto, código e anexos científicos</span>
+            <div class="upload-formats-row">
+              <span class="format-chip">📘 .docx</span>
+              <span class="format-chip">📙 .odt</span>
+              <span class="format-chip">📐 .tex</span>
+              <span class="format-chip">📄 .md</span>
+              <span class="format-chip">📝 .txt</span>
+              <span class="format-chip">📕 .pdf</span>
+              <span class="format-chip">📊 .csv</span>
+              <span class="format-chip">🖼️ .png/.jpg</span>
+            </div>
+            <input type="file" id="uploadFileInput" style="display:none;" onchange="handleFileSelected(this)">
+            <div id="uploadSelectedFileName" style="margin-top:14px; font-weight:700; color:var(--blue); font-size:0.9rem;"></div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr auto; gap:12px; align-items:flex-end;">
+            <label class="field-label" style="margin:0;">
+              <span>Descrição das Alterações / Mensagem da Versão Git <small>Obrigatório</small></span>
+              <input type="text" id="uploadCommitMsg" required placeholder="Ex.: Versão 2 incorporando apontamentos dos revisores (DOCX)">
+            </label>
+            <div style="padding-bottom:6px;">
+              <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; font-weight:600; color:var(--navy); cursor:pointer;">
+                <input type="checkbox" id="uploadIsMain" checked>
+                <span>Definir como manuscrito principal</span>
+              </label>
+            </div>
+          </div>
+
+          <div id="uploadFeedback" class="form-feedback hidden" style="margin-top:12px;"></div>
+
+          <div style="margin-top:16px; display:flex; justify-content:flex-end;">
+            <button type="submit" class="btn-primary" id="btnSubmitUpload" style="padding:9px 22px;">
+              Gravar Nova Versão no Git ⎇
+            </button>
+          </div>
+        </form>
+
+        <!-- LISTA DE ARQUIVOS NO REPOSITÓRIO -->
+        <div class="file-list-card">
+          <div class="file-list-header">
+            <span>Arquivos Armazenados no Nó LABECO (${entries.length})</span>
+            <a href="#/r/${encodeURIComponent(repo)}/code" style="font-size:0.78rem; color:var(--blue); text-decoration:none;">Ver Árvore Git Completa ➔</a>
+          </div>
+          <table class="tree-table" style="border:none; border-radius:0; box-shadow:none;">
+            <thead>
+              <tr>
+                <th>Arquivo</th>
+                <th>Tipo</th>
+                <th>SHA</th>
+                <th style="text-align:right;">Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${entries.length === 0 ? `
+                <tr><td colspan="4" style="text-align:center; padding:24px; color:var(--muted);">Nenhum arquivo no repositório. Envie o primeiro arquivo acima!</td></tr>
+              ` : entries.map(e => {
+                const eExt = (e.name.split('.').pop() || '').toLowerCase();
+                const isMain = e.name === mainDoc;
+                return `
+                  <tr>
+                    <td>
+                      <span style="font-size:1.1rem; margin-right:6px;">${formatIcon(eExt)}</span>
+                      <strong>${esc(e.name)}</strong>
+                      ${isMain ? '<span class="badge-edition-tag" style="margin-left:6px;">★ Principal</span>' : ''}
+                    </td>
+                    <td><span style="font-size:0.75rem; color:var(--muted);">${formatLabel(eExt)}</span></td>
+                    <td><code style="font-size:0.75rem; color:var(--muted);">${esc(e.hash.substr(0, 8))}</code></td>
+                    <td style="text-align:right;">
+                      <div style="display:inline-flex; gap:6px;">
+                        <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(e.name)}" class="btn-cancel" style="padding:3px 9px; font-size:0.75rem; background:#fff; text-decoration:none;" title="Baixar arquivo original">⬇ Baixar</a>
+                        <a href="#/r/${encodeURIComponent(repo)}/code?path=${encodeURIComponent(e.name)}" class="btn-cancel" style="padding:3px 9px; font-size:0.75rem; background:#fff; text-decoration:none;">Git</a>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
     `;
   } else if (tab === 'editor') {
     const localDraft = localStorage.getItem('sister_draft_' + repo);
@@ -756,7 +931,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
         <div class="split-editor-grid">
           <div class="editor-pane">
             <div class="pane-header">
-              <span>Manuscrito Markdown (manuscrito.md)</span>
+              <span>Editor de Texto / Markdown (${esc(mainDoc)})</span>
               <span id="charCount">0 caracteres</span>
             </div>
             <textarea class="editor-textarea" id="liveEditorTextarea" oninput="handleEditorInput(this.value, '${esc(repo)}')">${esc(textToShow)}</textarea>
@@ -887,10 +1062,14 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
 
     <nav class="doc-tabs-bar" aria-label="Navegação do Artigo">
       <a href="#/editorial/${encodeURIComponent(repo)}/manuscript" class="doc-tab ${tab === 'manuscript' ? 'active' : ''}">
-        <span>📖 Leitura &amp; Manuscrito</span>
+        <span>📖 Manuscrito &amp; Leitura</span>
+      </a>
+      <a href="#/editorial/${encodeURIComponent(repo)}/upload" class="doc-tab ${tab === 'upload' ? 'active' : ''}">
+        <span>📤 Upload &amp; Arquivos</span>
+        <span class="tab-badge-count">${entries.length}</span>
       </a>
       <a href="#/editorial/${encodeURIComponent(repo)}/editor" class="doc-tab ${tab === 'editor' ? 'active' : ''}">
-        <span>✎ Editor Interativo</span>
+        <span>✎ Editor Rápido (MD)</span>
       </a>
       <a href="#/editorial/${encodeURIComponent(repo)}/reviews" class="doc-tab ${tab === 'reviews' ? 'active' : ''}">
         <span>⚖ Pareceres &amp; Revisão</span>
@@ -898,6 +1077,9 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
       </a>
       <a href="#/editorial/${encodeURIComponent(repo)}/publish" class="doc-tab ${tab === 'publish' ? 'active' : ''}">
         <span>🚀 Edições &amp; Publicação</span>
+        <span class="tab-badge-count">${editions.length}</span>
+      </a>
+    </nav>
         <span class="tab-badge-count">${editions.length}</span>
       </a>
     </nav>
@@ -962,6 +1144,120 @@ window.handleSaveManuscript = async function(e, repo) {
     }
     btn.disabled = false;
     btn.innerHTML = '<span>Salvar Versão no Git ⎇</span>';
+  }
+};
+
+window.handleFileSelected = function(input) {
+  const el = document.querySelector('#uploadSelectedFileName');
+  const file = input && input.files && input.files[0];
+  if (!el) return;
+  if (file) {
+    el.innerHTML = `📄 Arquivo selecionado: <span style="text-decoration:underline;">${esc(file.name)}</span> (${(file.size / 1024).toFixed(1)} KB)`;
+    const msgInput = document.querySelector('#uploadCommitMsg');
+    if (msgInput && !msgInput.value.trim()) {
+      msgInput.value = `Atualização de arquivo: ${file.name}`;
+    }
+  } else {
+    el.innerHTML = '';
+  }
+};
+
+window.handleDropFile = function(evt) {
+  evt.preventDefault();
+  evt.stopPropagation();
+  const dt = evt.dataTransfer;
+  if (!dt || !dt.files || dt.files.length === 0) return;
+  const input = document.querySelector('#uploadFileInput');
+  if (input) {
+    input.files = dt.files;
+    window.handleFileSelected(input);
+  }
+};
+
+window.handleUploadDocument = async function(evt, repo) {
+  evt.preventDefault();
+  const input = document.querySelector('#uploadFileInput');
+  const msgInput = document.querySelector('#uploadCommitMsg');
+  const isMainCheck = document.querySelector('#uploadIsMain');
+  const fb = document.querySelector('#uploadFeedback');
+  const btn = document.querySelector('#btnSubmitUpload');
+
+  if (!input || !input.files || input.files.length === 0) {
+    if (fb) {
+      fb.className = 'form-feedback error';
+      fb.textContent = 'Por favor, selecione um arquivo para upload (.docx, .odt, .tex, .md, .txt, .pdf, etc.)';
+      fb.classList.remove('hidden');
+    }
+    return;
+  }
+
+  const file = input.files[0];
+  const message = (msgInput ? msgInput.value.trim() : '') || `Upload: ${file.name}`;
+  const isMain = isMainCheck ? isMainCheck.checked : true;
+
+  if (fb) {
+    fb.className = 'form-feedback';
+    fb.textContent = `Lendo e codificando ${file.name}...`;
+    fb.classList.remove('hidden');
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Enviando ao Git...';
+  }
+
+  try {
+    const arrayBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
+    }
+    const b64 = btoa(binary);
+
+    if (fb) fb.textContent = `Gravando commit no repositório ${repo}...`;
+
+    const res = await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/upload`, {
+      filename: file.name,
+      content_b64: b64,
+      message: message,
+      is_main: isMain
+    });
+
+    if (res && res.error) {
+      throw new Error(res.error);
+    }
+
+    showToast(`✓ Arquivo "${file.name}" gravado com sucesso no Git!`);
+    if (fb) {
+      fb.className = 'form-feedback success';
+      fb.textContent = `✓ Versão gravada (Commit ${res.commit ? res.commit.substr(0, 8) : 'OK'})`;
+    }
+
+    setTimeout(() => {
+      render();
+    }, 800);
+  } catch (err) {
+    console.error('Upload error:', err);
+    if (err.message && (err.message.includes('Autenticação') || err.message.includes('Token') || err.message.includes('401'))) {
+      openAuthModal();
+      const authFb = document.querySelector('#authModalFeedback');
+      if (authFb) {
+        authFb.textContent = 'Autenticação necessária para enviar arquivos ao Git. Digite o token de pesquisador.';
+        authFb.classList.remove('hidden');
+      }
+    }
+    if (fb) {
+      fb.className = 'form-feedback error';
+      fb.textContent = 'Erro ao enviar arquivo: ' + (err.message || err);
+      fb.classList.remove('hidden');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Gravar Nova Versão no Git ⎇';
+    }
   }
 };
 
