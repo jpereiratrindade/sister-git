@@ -215,6 +215,16 @@ static Result git_commit_file(const std::string &repo_name, const std::string &f
   std::string tree_sha = wt.out;
   while (!tree_sha.empty() && (tree_sha.back() == '\n' || tree_sha.back() == '\r' || tree_sha.back() == ' ')) tree_sha.pop_back();
 
+  if (has_head) {
+    auto head_tree = run({"git", "--git-dir=" + gd, "rev-parse", "HEAD^{tree}"});
+    std::string cur_tree = head_tree.out;
+    while (!cur_tree.empty() && (cur_tree.back() == '\n' || cur_tree.back() == '\r' || cur_tree.back() == ' ')) cur_tree.pop_back();
+    if (cur_tree == tree_sha) {
+      unlink(idx.c_str());
+      return {0, parent_commit};
+    }
+  }
+
   std::vector<std::string> ct_args = {"git", "--git-dir=" + gd, "commit-tree", tree_sha};
   if (!parent_commit.empty()) {
     ct_args.push_back("-p");
