@@ -438,6 +438,9 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
       </article>
     `;
   } else if (tab === 'editor') {
+    const localDraft = localStorage.getItem('sister_draft_' + repo);
+    const textToShow = (localDraft && localDraft.trim().length > 0) ? localDraft : rawMarkdown;
+
     tabContent = `
       <div class="split-editor-container">
         <div class="split-editor-grid">
@@ -446,7 +449,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
               <span>Manuscrito Markdown (manuscrito.md)</span>
               <span id="charCount">0 caracteres</span>
             </div>
-            <textarea class="editor-textarea" id="liveEditorTextarea" oninput="handleEditorInput(this.value)">${esc(rawMarkdown)}</textarea>
+            <textarea class="editor-textarea" id="liveEditorTextarea" oninput="handleEditorInput(this.value, '${esc(repo)}')">${esc(textToShow)}</textarea>
           </div>
           <div class="preview-pane">
             <div class="pane-header">
@@ -454,7 +457,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
               <span style="color:var(--teal);">Leitura Científica</span>
             </div>
             <div class="preview-body markdown-body" id="livePreviewPane">
-              ${renderMarkdown(rawMarkdown)}
+              ${renderMarkdown(textToShow)}
             </div>
           </div>
         </div>
@@ -599,11 +602,14 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
   }
 }
 
-window.handleEditorInput = function(val) {
+window.handleEditorInput = function(val, repo) {
   const p = document.querySelector('#livePreviewPane');
   const count = document.querySelector('#charCount');
   if (p) p.innerHTML = renderMarkdown(val);
   if (count) count.textContent = `${val.length} caracteres`;
+  if (repo) {
+    try { localStorage.setItem('sister_draft_' + repo, val); } catch (_) {}
+  }
 };
 
 window.handleSaveManuscript = async function(e, repo) {
@@ -626,6 +632,7 @@ window.handleSaveManuscript = async function(e, repo) {
       author: author || 'Pesquisador LABECO',
       message: message || 'Atualização editorial do manuscrito'
     });
+    localStorage.removeItem('sister_draft_' + repo);
     showToast(`✓ Nova versão salva no Git! Commit: ${res.short_hash || ''}`);
     btn.innerHTML = '✓ Versão Salva!';
     setTimeout(() => {
