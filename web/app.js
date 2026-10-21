@@ -633,7 +633,16 @@ window.handleSaveManuscript = async function(e, repo) {
       btn.innerHTML = '<span>Salvar Versão no Git ⎇</span>';
     }, 1800);
   } catch (err) {
-    alert('Erro ao salvar versão: ' + err.message);
+    if (err.message.includes('Autenticação') || err.message.includes('Token') || err.message.includes('401')) {
+      openAuthModal();
+      const fb = document.querySelector('#authModalFeedback');
+      if (fb) {
+        fb.textContent = 'Autenticação necessária para salvar no Git. Digite o token de pesquisador.';
+        fb.classList.remove('hidden');
+      }
+    } else {
+      alert('Erro ao salvar versão: ' + err.message);
+    }
     btn.disabled = false;
     btn.innerHTML = '<span>Salvar Versão no Git ⎇</span>';
   }
@@ -994,9 +1003,12 @@ window.handleSaveToken = async function(e) {
       return;
     }
     closeModal('modalAuth');
-    showToast('✓ Token autenticado com sucesso!');
+    showToast('✓ Token autenticado com sucesso! Agora clique em Salvar Versão no Git.');
     updateAuthStatus();
-    render();
+    const route = parseRoute();
+    if (!(route.mode === 'editorial-doc' && route.tab === 'editor')) {
+      render();
+    }
   } catch (err) {
     setToken('');
     if (fb) {
