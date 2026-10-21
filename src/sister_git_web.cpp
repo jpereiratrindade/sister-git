@@ -94,6 +94,18 @@ static std::string repo_visibility(const std::string &name) {
   return auth_token.empty() ? "public" : "private";
 }
 
+static std::string repo_type(const std::string &name) {
+  auto r = run({"git", "--git-dir=" + git_dir(name), "config", "--get", "sister.type"});
+  if (r.status == 0) {
+    std::string v = r.out;
+    while (!v.empty() && (v.back() == '\n' || v.back() == '\r' || v.back() == ' ')) v.pop_back();
+    if (v == "editorial" || v == "software") return v;
+  }
+  auto m = run({"git", "--git-dir=" + git_dir(name), "cat-file", "-e", "HEAD:.sister-editorial.json"});
+  if (m.status == 0) return "editorial";
+  return "software";
+}
+
 static Response repos(bool is_auth) {
   std::string body="{\"repositories\":["; bool first=true;
   std::error_code ec;
@@ -102,13 +114,14 @@ static Response repos(bool is_auth) {
     std::string name=file.substr(0,file.size()-4); if(!is_repo(name)) continue;
     std::string vis = repo_visibility(name);
     if (!is_auth && vis == "private") continue;
+    std::string type = repo_type(name);
     auto head=run({"git","--git-dir="+git_dir(name),"symbolic-ref","--short","HEAD"});
     auto counts=run({"git","--git-dir="+git_dir(name),"for-each-ref","--format=%(refname)","refs/heads","refs/tags"}); int branches=0,tags=0;
     for(auto &x:lines(counts.out)){if(x.rfind("refs/heads/",0)==0)branches++;else if(x.rfind("refs/tags/",0)==0)tags++;}
     auto last=run({"git","--git-dir="+git_dir(name),"log","-1","--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI"}); auto f=lines(last.out); std::string log=last.status!=0||f.empty()?"":f[0];
     uintmax_t bytes=0; for(auto i=fs::recursive_directory_iterator(entry.path(),fs::directory_options::skip_permission_denied,ec);!ec&&i!=fs::recursive_directory_iterator();i.increment(ec)) if(i->is_regular_file(ec)) bytes+=i->file_size(ec);
     if(!first) body+=',';
-    first=false; body+="{\"name\":"+json(name)+",\"visibility\":"+json(vis)+",\"default_branch\":"+json(head.status==0?head.out.substr(0,head.out.find('\n')):"")+",\"branches\":"+std::to_string(branches)+",\"tags\":"+std::to_string(tags)+",\"size_bytes\":"+std::to_string(bytes)+",\"integrity\":\"not_checked\"";
+    first=false; body+="{\"name\":"+json(name)+",\"visibility\":"+json(vis)+",\"type\":"+json(type)+",\"default_branch\":"+json(head.status==0?head.out.substr(0,head.out.find('\n')):"")+",\"branches\":"+std::to_string(branches)+",\"tags\":"+std::to_string(tags)+",\"size_bytes\":"+std::to_string(bytes)+",\"integrity\":\"not_checked\"";
     if(log.empty()) body+=",\"empty\":true,\"last_commit\":null}"; else { auto p=std::vector<std::string>{}; size_t b=0,a; while((a=log.find('\x1f',b))!=std::string::npos){p.push_back(log.substr(b,a-b));b=a+1;}p.push_back(log.substr(b)); body+=",\"empty\":false,\"last_commit\":{\"hash\":"+json(p[0])+",\"short_hash\":"+json(p[1])+",\"subject\":"+json(p[2])+",\"author\":"+json(p[3])+",\"date\":"+json(p[4])+"}}"; }
   }
   return {200,"application/json; charset=utf-8",body+"]}"};
@@ -136,6 +149,40 @@ static Response blob(const std::string &name,const std::map<std::string,std::str
 static Response compare(const std::string &name,const std::map<std::string,std::string>&q) {
   std::string base=q.count("base")?q.at("base"):"",head=q.count("head")?q.at("head"):"";if(!valid_revision(base)||!valid_revision(head))return error(400,"Revisões inválidas");auto r=run({"git","--git-dir="+git_dir(name),"diff","--no-color","--stat","--patch",base+".."+head});if(r.status)return error(404,"Comparação inválida");return{200,"application/json; charset=utf-8","{\"base\":"+json(base)+",\"head\":"+json(head)+",\"diff\":"+json(r.out)+"}"};
 }
+
+static Response editorial(const std::string &name) {
+  auto r = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
+  std::string manifest_content = r.status == 0 ? r.out : "";
+  // Trim
+  while (!manifest_content.empty() && (manifest_content.back() == '\n' || manifest_content.back() == '\r' || manifest_content.back() == ' ')) manifest_content.pop_back();
+
+  auto tags_res = run({"git", "--git-dir=" + git_dir(name), "tag", "-l", "--sort=-creatordate", "--format=%(refname:short)%09%(objectname)%09%(creatordate:iso-strict)%09%(subject)", "ed/*", "v*"});
+  std::string editions_json = "[";
+  bool first_ed = true;
+  for (const auto &line : lines(tags_res.out)) {
+    size_t t1 = line.find('\t'), t2 = line.find('\t', t1 + 1), t3 = line.find('\t', t2 + 1);
+    if (t1 == std::string::npos || t2 == std::string::npos) continue;
+    std::string tag_name = line.substr(0, t1);
+    std::string tag_hash = line.substr(t1 + 1, t2 - t1 - 1);
+    std::string tag_date = t3 == std::string::npos ? line.substr(t2 + 1) : line.substr(t2 + 1, t3 - t2 - 1);
+    std::string tag_subj = t3 == std::string::npos ? "" : line.substr(t3 + 1);
+    if (!first_ed) editions_json += ',';
+    first_ed = false;
+    editions_json += "{\"tag\":" + json(tag_name) + ",\"hash\":" + json(tag_hash) + ",\"date\":" + json(tag_date) + ",\"subject\":" + json(tag_subj) + "}";
+  }
+  editions_json += "]";
+
+  bool is_ed = repo_type(name) == "editorial";
+  std::string out = "{\"name\":" + json(name) + ",\"is_editorial\":" + (is_ed ? "true" : "false");
+  if (!manifest_content.empty() && manifest_content[0] == '{') {
+    out += ",\"has_manifest\":true,\"manifest\":" + manifest_content;
+  } else {
+    out += ",\"has_manifest\":false,\"manifest\":null";
+  }
+  out += ",\"editions\":" + editions_json + "}";
+  return {200, "application/json; charset=utf-8", out};
+}
+
 static Response static_file(std::string path) {
   if(path=="/") path="/index.html";
   if(path.find("..")!=std::string::npos) return error(400,"Caminho inválido");
@@ -147,7 +194,7 @@ static Response route(const std::string &target, bool is_auth) {
   if(path=="/api/v1/auth/status")return{200,"application/json; charset=utf-8","{\"authenticated\":"+std::string(is_auth?"true":"false")+",\"auth_required\":"+std::string(auth_token.empty()?"false":"true")+"}"};
   if(path=="/api/v1/ha")return{200,"application/json; charset=utf-8","{\"nodes\":[{\"name\":\"LABECO-SRV\",\"role\":\"git-host\",\"status\":\"not_verified\"},{\"name\":\"Fedora Silverblue\",\"role\":\"planned-replica\",\"status\":\"not_verified\"}],\"replication\":\"not_verified\",\"last_sync\":null}"};
   if(path=="/api/v1/repos")return repos(is_auth);
-  const std::string pre="/api/v1/repos/";if(path.rfind(pre,0)==0){std::string rest=path.substr(pre.size());size_t slash=rest.find('/');std::string name=url_decode(rest.substr(0,slash));if(!is_repo(name))return error(404,"Repositório não encontrado");std::string vis=repo_visibility(name);if(!is_auth&&vis=="private")return error(404,"Repositório não encontrado");std::string action=slash==std::string::npos?"":rest.substr(slash+1);if(action=="refs")return refs(name);if(action=="commits")return commits(name,q);if(action=="tree")return tree(name,q);if(action=="blob")return blob(name,q);if(action=="compare")return compare(name,q);return error(404,"Rota não encontrada");}
+  const std::string pre="/api/v1/repos/";if(path.rfind(pre,0)==0){std::string rest=path.substr(pre.size());size_t slash=rest.find('/');std::string name=url_decode(rest.substr(0,slash));if(!is_repo(name))return error(404,"Repositório não encontrado");std::string vis=repo_visibility(name);if(!is_auth&&vis=="private")return error(404,"Repositório não encontrado");std::string action=slash==std::string::npos?"":rest.substr(slash+1);if(action=="refs")return refs(name);if(action=="commits")return commits(name,q);if(action=="tree")return tree(name,q);if(action=="blob")return blob(name,q);if(action=="compare")return compare(name,q);if(action=="editorial")return editorial(name);return error(404,"Rota não encontrada");}
   return static_file(path);
 }
 static std::string reason(int s){if(s==200)return"OK";if(s==400)return"Bad Request";if(s==401)return"Unauthorized";if(s==404)return"Not Found";if(s==405)return"Method Not Allowed";return"Internal Server Error";}

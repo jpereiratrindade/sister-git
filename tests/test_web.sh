@@ -53,6 +53,22 @@ grep -q '"name":"MORFO"' "$TMP/auth_repos.json"
 grep -q '"name":"empty"' "$TMP/auth_repos.json"
 grep -q '"visibility":"private"' "$TMP/auth_repos.json"
 
+# Teste SisTer Git Editorial (manifesto e tags ed/)
+printf '{"project_type":"editorial","title":"Campos Nativos","current_stage":"in_review"}\n' > "$TMP/work/.sister-editorial.json"
+git -C "$TMP/work" add .sister-editorial.json
+git -C "$TMP/work" commit -qm "feat(editorial): add editorial manifest"
+git -C "$TMP/work" tag ed/v1.0 -m "Primeira versao editorial"
+git -C "$TMP/work" push -q "$TMP/repos/MORFO.git" main --tags
+git --git-dir="$TMP/repos/MORFO.git" config sister.type editorial
+
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/repos_ed.json"
+grep -q '"type":"editorial"' "$TMP/repos_ed.json"
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/MORFO/editorial" > "$TMP/morfo_ed.json"
+grep -q '"is_editorial":true' "$TMP/morfo_ed.json"
+grep -q '"has_manifest":true' "$TMP/morfo_ed.json"
+grep -q 'ed/v1.0' "$TMP/morfo_ed.json"
+grep -q 'Campos Nativos' "$TMP/morfo_ed.json"
+
 if SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" "$HERE/build/sister-git-web" --bind 0.0.0.0 --port $((PORT+1)) >"$TMP/public.log" 2>&1; then echo '[ERRO] bind público aceito sem token' >&2; exit 1; fi
 git --git-dir="$TMP/repos/MORFO.git" fsck --full >/dev/null
-printf '[OK] SisTer Git Web: API, UI, vazio, binário, refs, diff, visibilidade pública/privada, erro e read-only\n'
+printf '[OK] SisTer Git Web: API, UI, vazio, binário, refs, diff, visibilidade pública/privada, modo editorial, erro e read-only\n'

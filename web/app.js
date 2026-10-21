@@ -60,7 +60,6 @@ async function updateTopAuth() {
   if (!topbarAuth) return;
   try {
     const st = await api('/api/v1/auth/status').catch(() => ({ authenticated: false, auth_required: false }));
-    const hasToken = Boolean(getToken());
     if (st.authenticated) {
       topbarAuth.innerHTML = `
         <div class="auth-box">
@@ -155,13 +154,17 @@ window.copyText = function(text, btn) {
   });
 };
 
-function frame(repo, tab, content, ref = '', branches = [], tags = [], visibility = '') {
+function frame(repo, tab, content, ref = '', branches = [], tags = [], visibility = '', repoType = 'software') {
   const branchCount = branches.length;
   const tagCount = tags.length;
 
   const visBadge = visibility === 'private'
     ? `<span class="badge badge-private">🔒 Privado</span>`
     : `<span class="badge badge-public">🌐 Público</span>`;
+
+  const typeBadge = repoType === 'editorial'
+    ? `<span class="badge badge-editorial">📖 Editorial</span>`
+    : '';
 
   return `
     <header class="repo-header">
@@ -170,14 +173,19 @@ function frame(repo, tab, content, ref = '', branches = [], tags = [], visibilit
           <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h6.5a.25.25 0 0 1 .25.25v1.5a.25.25 0 0 1-.25.25h-6.5a.25.25 0 0 1-.25-.25Z"></path></svg>
           <a href="#/">repositórios</a>
           <span class="sep">/</span>
-          <a class="repo-name" href="${link(repo, 'code')}"><b>${esc(repo)}</b></a>
+          <a class="repo-name" href="${link(repo, repoType === 'editorial' ? 'editorial' : 'code')}"><b>${esc(repo)}</b></a>
           ${visBadge}
+          ${typeBadge}
         </div>
       </div>
       <nav class="repo-tabs">
         <a class="tab-item ${tab === 'code' ? 'active' : ''}" href="${link(repo, 'code', { ref })}">
           <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.06 0 .75.75 0 0 1 0 1.06L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25a.75.75 0 0 1 1.06 0Z"></path></svg>
           <span>Código</span>
+        </a>
+        <a class="tab-item ${tab === 'editorial' ? 'active' : ''}" href="${link(repo, 'editorial')}">
+          <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.244a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.244a2.25 2.25 0 0 0-1.762.85.75.75 0 0 1-1.188 0A2.25 2.25 0 0 0 6.003 13H1.75a.75.75 0 0 1-.75-.75Zm7.25 9.99V3.25c0-.69-.56-1.25-1.25-1.25H1.5v9h4.503c.427 0 .83.155 1.247.74Zm1.5 0c.418-.585.82-.74 1.247-.74h4.503v-9h-4.244c-.69 0-1.25.56-1.25 1.25Z"></path></svg>
+          <span>Fluxo Editorial</span>
         </a>
         <a class="tab-item ${tab === 'commits' ? 'active' : ''}" href="${link(repo, 'commits', { ref })}">
           <svg class="octicon" viewBox="0 0 16 16" width="16" height="16"><path fill="currentColor" d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"></path></svg>
@@ -441,13 +449,14 @@ async function home() {
 
   const privates = d.repositories.filter(r => r.visibility === 'private').length;
   const publics = d.repositories.filter(r => r.visibility === 'public').length;
+  const editorials = d.repositories.filter(r => r.type === 'editorial').length;
 
   app.innerHTML = `
     <section class="hero-github">
       <div class="hero-content">
         <div class="eyebrow">Laboratório de Ecologia e Conservação</div>
         <h1>SisTer Git</h1>
-        <p class="hero-desc">Hospedagem segura e governança visual dos repositórios Git do LABECO, com isolamento estrito e visibilidade controlada.</p>
+        <p class="hero-desc">Hospedagem segura, governança visual e gestão editorial baseada em Git, com preservação de proveniência e integridade.</p>
       </div>
       <div class="hero-badges">
         ${authStatus.authenticated ? `
@@ -455,22 +464,23 @@ async function home() {
         ` : `
           <span class="status-pill status-warn">Acesso Anônimo / Leitura Pública</span>
         `}
-        <span class="meta-tag">${d.repositories.length} visíveis (${publics} públicos${privates ? `, ${privates} privados` : ''})</span>
+        <span class="meta-tag">${d.repositories.length} projetos (${editorials} editoriais, ${publics} públicos${privates ? `, ${privates} privados` : ''})</span>
       </div>
     </section>
 
     <div class="repo-filter-bar">
-      <h2>Repositórios Disponíveis</h2>
+      <h2>Projetos do Laboratório</h2>
     </div>
 
     <div class="repo-grid">
       ${d.repositories.map(r => `
-        <article class="repo-card">
+        <article class="repo-card ${r.type === 'editorial' ? 'card-editorial' : ''}">
           <div class="repo-card-top">
             <div class="repo-card-title">
               <svg class="octicon repo-icon" viewBox="0 0 16 16" width="18" height="18"><path fill="currentColor" d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h6.5a.25.25 0 0 1 .25.25v1.5a.25.25 0 0 1-.25.25h-6.5a.25.25 0 0 1-.25-.25Z"></path></svg>
-              <a class="repo-link" href="${link(r.name)}">${esc(r.name)}</a>
+              <a class="repo-link" href="${link(r.name, r.type === 'editorial' ? 'editorial' : 'code')}">${esc(r.name)}</a>
               <span class="badge badge-branch">${esc(r.default_branch || 'main')}</span>
+              ${r.type === 'editorial' ? '<span class="badge badge-editorial">📖 Editorial</span>' : ''}
               ${r.visibility === 'private' ? '<span class="badge badge-private">🔒 Privado</span>' : '<span class="badge badge-public">🌐 Público</span>'}
             </div>
           </div>
@@ -493,6 +503,187 @@ async function home() {
   `;
 }
 
+async function editorial(repo) {
+  const [edData, reposList, refsData] = await Promise.all([
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/editorial`),
+    api('/api/v1/repos').catch(() => ({ repositories: [] })),
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`).catch(() => ({ branches: [], tags: [] }))
+  ]);
+
+  const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
+  const visibility = currentRepoMeta?.visibility || 'public';
+  const repoType = currentRepoMeta?.type || (edData.is_editorial ? 'editorial' : 'software');
+  const branches = refsData.branches || [];
+  const tags = refsData.tags || [];
+
+  const manifest = edData.manifest || null;
+  const title = manifest?.title || repo;
+  const abstract = manifest?.abstract || 'Projeto documental sob governança editorial e proveniência Git do SisTer Git.';
+  const authors = manifest?.authors || [{ name: 'Pesquisador(es) do LABECO', affiliation: 'LABECO' }];
+  const stage = manifest?.current_stage || 'draft';
+  const reviews = manifest?.reviews || [];
+  const decisions = manifest?.decisions || [];
+  const editions = edData.editions || [];
+  const mainDoc = manifest?.document_main || 'manuscrito.md';
+
+  let docContent = null;
+  let docLoadedName = mainDoc;
+  try {
+    const d = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?path=${encodeURIComponent(mainDoc)}`);
+    docContent = d.content;
+  } catch (_) {
+    try {
+      const d2 = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?path=README.md`);
+      docContent = d2.content;
+      docLoadedName = 'README.md';
+    } catch (_) {}
+  }
+
+  const stageMap = {
+    'draft': { label: '✏️ Em Elaboração / Rascunho', cls: 'stage-draft' },
+    'in_review': { label: '🔍 Em Revisão Científica', cls: 'stage-review' },
+    'review': { label: '🔍 Em Revisão Científica', cls: 'stage-review' },
+    'revision': { label: '📝 Ajustes Solicitados', cls: 'stage-revision' },
+    'approved': { label: '✅ Aprovado pelo Editor', cls: 'stage-approved' },
+    'published': { label: '🏛️ Edição Publicada', cls: 'stage-published' }
+  };
+  const stageInfo = stageMap[stage] || stageMap['draft'];
+
+  let timelineHtml = '';
+  if (reviews.length === 0 && decisions.length === 0) {
+    timelineHtml = `
+      <div class="empty-timeline-card">
+        <div class="empty-timeline-title">Nenhum parecer ou decisão registrado neste manifesto ainda.</div>
+        <p>Conforme pareceristas e editores avaliarem o manuscrito, os pareceres vinculados aos commits exatos aparecerão aqui em ordem de proveniência temporal (W3C PROV).</p>
+      </div>
+    `;
+  } else {
+    const revHtml = reviews.map(r => `
+      <div class="provenance-item">
+        <div class="provenance-marker marker-review">🔍</div>
+        <div class="provenance-card">
+          <div class="provenance-card-header">
+            <div class="provenance-who">
+              <b>${esc(r.reviewer || 'Revisor Convidado')}</b> emitiu parecer:
+              <span class="badge ${r.recommendation === 'approved' ? 'badge-public' : 'badge-private'}">${esc(r.recommendation === 'approved' ? 'Aprovação' : 'Ajustes Necessários')}</span>
+            </div>
+            <div class="provenance-meta">${timeAgo(r.date)} · commit <a class="mono-hash" href="${link(repo, 'code', { ref: r.commit })}">${esc((r.commit || '').slice(0, 7))}</a></div>
+          </div>
+          <div class="provenance-body">
+            <p>${esc(r.summary || r.content || '')}</p>
+            ${r.resolution ? `
+              <div class="provenance-resolution">
+                <div class="resolution-title"><b>Resposta do Autor / Ajuste Fundamentado:</b></div>
+                <p>${esc(r.resolution.author_response || '')}</p>
+                ${r.resolution.resolved_in_commit ? `
+                  <div class="resolution-commit">Solucionado no commit: <a class="mono-hash" href="${link(repo, 'code', { ref: r.resolution.resolved_in_commit })}">${esc(r.resolution.resolved_in_commit.slice(0, 7))}</a></div>
+                ` : ''}
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    const decHtml = decisions.map(d => `
+      <div class="provenance-item">
+        <div class="provenance-marker marker-decision">🏛️</div>
+        <div class="provenance-card decision-card">
+          <div class="provenance-card-header">
+            <div class="provenance-who">
+              <b>${esc(d.editor || 'Editor Responsável')}</b> homologou decisão editorial:
+              <span class="badge badge-public">${esc(d.decision_type || 'Aprovação Formal')}</span>
+            </div>
+            <div class="provenance-meta">${timeAgo(d.date)} · commit <a class="mono-hash" href="${link(repo, 'code', { ref: d.target_commit })}">${esc((d.target_commit || '').slice(0, 7))}</a></div>
+          </div>
+          <div class="provenance-body">
+            <p>${esc(d.notes || d.justification || '')}</p>
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    timelineHtml = `<div class="provenance-timeline">${revHtml}${decHtml}</div>`;
+  }
+
+  let editionsHtml = '';
+  if (editions.length > 0) {
+    editionsHtml = `
+      <section class="editorial-section">
+        <div class="editorial-section-title">
+          <h3>Edições Publicadas & Versões Imutáveis (${editions.length})</h3>
+        </div>
+        <div class="editions-grid">
+          ${editions.map(ed => `
+            <div class="edition-card">
+              <div class="edition-top">
+                <span class="edition-tag">🏷️ ${esc(ed.tag)}</span>
+                <span class="mono-hash">${esc(ed.hash.slice(0, 7))}</span>
+              </div>
+              <div class="edition-subj">${esc(ed.subject || 'Versão editorial')}</div>
+              <div class="edition-date">${date(ed.date)}</div>
+              <div class="edition-actions">
+                <a class="btn-read-edition" href="${link(repo, 'code', { ref: ed.tag })}">Examinar esta edição</a>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </section>
+    `;
+  }
+
+  const editorialContent = `
+    <article class="editorial-dashboard">
+      <header class="editorial-hero-card">
+        <div class="editorial-hero-top">
+          <span class="stage-pill ${stageInfo.cls}">${stageInfo.label}</span>
+          <span class="meta-tag">Documento base: <code>${esc(docLoadedName)}</code></span>
+        </div>
+        <h1 class="editorial-work-title">${esc(title)}</h1>
+        <div class="editorial-authors">
+          ${authors.map(a => `
+            <span class="author-tag"><b>${esc(a.name)}</b> ${a.affiliation ? `(${esc(a.affiliation)})` : ''}</span>
+          `).join(' · ')}
+        </div>
+        <div class="editorial-abstract">
+          <div class="abstract-label">Resumo Editorial:</div>
+          <p>${esc(abstract)}</p>
+        </div>
+      </header>
+
+      ${editionsHtml}
+
+      <section class="editorial-section">
+        <div class="editorial-section-title">
+          <h3>Linha do Tempo de Proveniência Editorial</h3>
+          <span class="section-sub">Histórico imutável de pareceres, revisões e decisões fundamentadas vinculadas a commits</span>
+        </div>
+        ${timelineHtml}
+      </section>
+
+      <section class="editorial-section">
+        <div class="editorial-section-title">
+          <h3>Leitura Editorial do Manuscrito</h3>
+          <span class="section-sub">Renderizado a partir de <code>${esc(docLoadedName)}</code></span>
+        </div>
+        <div class="editorial-reader-frame">
+          ${docContent !== null ? `
+            <div class="editorial-reader-body markdown-body">
+              ${renderMarkdown(docContent)}
+            </div>
+          ` : `
+            <div class="empty-state">
+              O documento principal <code>${esc(mainDoc)}</code> ainda não foi comitado no repositório.
+            </div>
+          `}
+        </div>
+      </section>
+    </article>
+  `;
+
+  app.innerHTML = frame(repo, 'editorial', editorialContent, 'main', branches, tags, visibility, repoType);
+}
+
 async function code(repo, path = '', reqRef = '') {
   const [refsData, reposList] = await Promise.all([
     api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`),
@@ -500,6 +691,7 @@ async function code(repo, path = '', reqRef = '') {
   ]);
   const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
   const visibility = currentRepoMeta?.visibility || 'public';
+  const repoType = currentRepoMeta?.type || 'software';
 
   const branches = refsData.branches || [];
   const tags = refsData.tags || [];
@@ -588,7 +780,7 @@ async function code(repo, path = '', reqRef = '') {
       ${rows || '<div class="empty-state">Diretório vazio.</div>'}
     </div>
     ${readmeHtml}
-  `, branch, branches, tags, visibility);
+  `, branch, branches, tags, visibility, repoType);
 }
 
 async function blob(repo, path, reqRef = '') {
@@ -598,6 +790,7 @@ async function blob(repo, path, reqRef = '') {
   ]);
   const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
   const visibility = currentRepoMeta?.visibility || 'public';
+  const repoType = currentRepoMeta?.type || 'software';
 
   const branches = refsData.branches || [];
   const tags = refsData.tags || [];
@@ -659,7 +852,7 @@ async function blob(repo, path, reqRef = '') {
     </div>
   `;
 
-  app.innerHTML = frame(repo, 'code', `${toolbar}${blobBox}`, branch, branches, tags, visibility);
+  app.innerHTML = frame(repo, 'code', `${toolbar}${blobBox}`, branch, branches, tags, visibility, repoType);
 }
 
 async function commits(repo, reqRef = '') {
@@ -669,6 +862,7 @@ async function commits(repo, reqRef = '') {
   ]);
   const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
   const visibility = currentRepoMeta?.visibility || 'public';
+  const repoType = currentRepoMeta?.type || 'software';
 
   const branches = refsData.branches || [];
   const tags = refsData.tags || [];
@@ -710,7 +904,7 @@ async function commits(repo, reqRef = '') {
     </div>
   `;
 
-  app.innerHTML = frame(repo, 'commits', `${toolbar}${list}`, branch, branches, tags, visibility);
+  app.innerHTML = frame(repo, 'commits', `${toolbar}${list}`, branch, branches, tags, visibility, repoType);
 }
 
 async function refs(repo) {
@@ -720,6 +914,7 @@ async function refs(repo) {
   ]);
   const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
   const visibility = currentRepoMeta?.visibility || 'public';
+  const repoType = currentRepoMeta?.type || 'software';
 
   const branches = d.branches || [];
   const tags = d.tags || [];
@@ -755,7 +950,7 @@ async function refs(repo) {
       ${renderSection('Branches', branches, true)}
       ${renderSection('Tags', tags, false)}
     </div>
-  `, 'main', branches, tags, visibility);
+  `, 'main', branches, tags, visibility, repoType);
 }
 
 async function compare(repo, reqBase = '', reqHead = '') {
@@ -765,6 +960,7 @@ async function compare(repo, reqBase = '', reqHead = '') {
   ]);
   const currentRepoMeta = reposList.repositories?.find(r => r.name === repo);
   const visibility = currentRepoMeta?.visibility || 'public';
+  const repoType = currentRepoMeta?.type || 'software';
 
   const branches = refsData.branches || [];
   const tags = refsData.tags || [];
@@ -810,7 +1006,7 @@ async function compare(repo, reqBase = '', reqHead = '') {
         <div class="loading-state">Carregando comparação…</div>
       </div>
     </div>
-  `, 'main', branches, tags, visibility);
+  `, 'main', branches, tags, visibility, repoType);
 
   const form = document.querySelector('#compareForm');
   const out = document.querySelector('#diffOutput');
@@ -886,6 +1082,7 @@ async function render() {
     if (p.repo === 'infra') return await infra();
 
     if (p.tab === 'code') return await code(p.repo, p.path, p.ref);
+    if (p.tab === 'editorial') return await editorial(p.repo);
     if (p.tab === 'blob') return await blob(p.repo, p.path, p.ref);
     if (p.tab === 'commits') return await commits(p.repo, p.ref);
     if (p.tab === 'refs') return await refs(p.repo);

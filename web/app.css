@@ -349,6 +349,13 @@ footer em {
   font-size: 11px;
   padding: 2px 8px;
 }
+.badge-editorial {
+  background: #fbefff;
+  color: #8250df;
+  border: 1px solid #d1bcf5;
+  font-size: 11px;
+  padding: 2px 8px;
+}
 .badge-default {
   background: var(--accent-green-bg);
   color: var(--accent-green);
@@ -1175,6 +1182,299 @@ footer em {
   margin-top: 0;
 }
 
+/* EDITORIAL DOMAIN */
+.card-editorial {
+  border-left: 4px solid #8250df;
+}
+
+.editorial-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.editorial-hero-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 28px 32px;
+  box-shadow: var(--shadow-sm);
+  border-left: 5px solid #8250df;
+}
+.editorial-hero-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.stage-pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.stage-draft {
+  background: #f6f8fa;
+  color: #57606a;
+  border: 1px solid var(--border-default);
+}
+.stage-review {
+  background: #ddf4ff;
+  color: #0969da;
+  border: 1px solid #54aeff;
+}
+.stage-revision {
+  background: #fff8c5;
+  color: #9a6700;
+  border: 1px solid #d4a72c;
+}
+.stage-approved {
+  background: var(--accent-green-bg);
+  color: var(--accent-green);
+  border: 1px solid var(--accent-green-border);
+}
+.stage-published {
+  background: #fbefff;
+  color: #8250df;
+  border: 1px solid #d1bcf5;
+}
+
+.editorial-work-title {
+  font-family: "Georgia", "Cambria", serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1e24;
+  margin: 0 0 10px;
+  line-height: 1.3;
+}
+.editorial-authors {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+.author-tag b {
+  color: var(--text-primary);
+}
+.editorial-abstract {
+  background: #fcfcfd;
+  border-left: 3px solid #8c959f;
+  padding: 12px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.6;
+  color: #374151;
+}
+.abstract-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.editorial-abstract p {
+  margin: 0;
+}
+
+/* EDITORIAL SECTIONS */
+.editorial-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.editorial-section-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.editorial-section-title h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.section-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* PROVENANCE TIMELINE */
+.provenance-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  padding-left: 20px;
+}
+.provenance-timeline::before {
+  content: "";
+  position: absolute;
+  top: 15px;
+  bottom: 15px;
+  left: 9px;
+  width: 2px;
+  background-color: var(--border-default);
+}
+.provenance-item {
+  display: flex;
+  gap: 14px;
+  position: relative;
+}
+.provenance-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--border-default);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  z-index: 1;
+  flex-shrink: 0;
+  margin-top: 12px;
+}
+.marker-review {
+  border-color: #54aeff;
+}
+.marker-decision {
+  border-color: #8250df;
+}
+.provenance-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-sm);
+  flex: 1;
+}
+.provenance-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+.provenance-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.provenance-body p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.provenance-resolution {
+  margin-top: 12px;
+  background: #f6f8fa;
+  border-left: 3px solid var(--accent-green);
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.resolution-title {
+  margin-bottom: 4px;
+  color: var(--accent-green);
+}
+.resolution-commit {
+  margin-top: 6px;
+  color: var(--text-secondary);
+}
+.decision-card {
+  border-left: 4px solid #8250df;
+}
+
+/* EDITIONS GRID */
+.editions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+.edition-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.edition-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.edition-tag {
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: #8250df;
+  font-size: 13px;
+}
+.edition-subj {
+  font-weight: 500;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.edition-date {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.btn-read-edition {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--link-color);
+  background: #f6f8fa;
+  border: 1px solid var(--border-default);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+.btn-read-edition:hover {
+  background: #eaeef2;
+  text-decoration: none;
+}
+
+/* ACADEMIC READER */
+.editorial-reader-frame {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 48px 64px;
+  box-shadow: var(--shadow-sm);
+}
+.editorial-reader-body {
+  max-width: 780px;
+  margin: 0 auto;
+  font-family: "Georgia", "Cambria", serif;
+  font-size: 16px;
+  line-height: 1.8;
+  color: #22262a;
+}
+.editorial-reader-body h1, .editorial-reader-body h2, .editorial-reader-body h3 {
+  font-family: var(--font-sans);
+}
+
+.empty-timeline-card {
+  background: var(--bg-card);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.empty-timeline-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
 /* RESPONSIVE */
 @media (max-width: 768px) {
   .topbar {
@@ -1196,5 +1496,8 @@ footer em {
   }
   .compare-arrow {
     display: none;
+  }
+  .editorial-reader-frame {
+    padding: 24px 16px;
   }
 }
