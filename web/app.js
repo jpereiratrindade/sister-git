@@ -713,16 +713,27 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
   const authors = manifest.authors && manifest.authors.length
     ? manifest.authors.map(a => a.name).join(', ')
     : 'Pesquisador LABECO';
-  const stage = manifest.current_stage || (edData.tags && edData.tags.length ? 'published' : 'draft');
-  const reviews = manifest.reviews || [];
   const editions = (edData.tags || []);
+  let stage = manifest.current_stage;
+  if (!stage) {
+    const hasPublishedTag = editions.some(t => /publicad|publish|release/i.test(t.name));
+    const hasSubmissionTag = editions.some(t => /submis|review/i.test(t.name));
+    if (hasPublishedTag) {
+      stage = 'published';
+    } else if (hasSubmissionTag) {
+      stage = 'in_review';
+    } else {
+      stage = 'draft';
+    }
+  }
+  const reviews = manifest.reviews || [];
   const rawMarkdown = blobData && !blobData.binary ? blobData.content : '# ' + title + '\n\nInicie a escrita do seu manuscrito.';
 
   const stageBadge = stage === 'published'
-    ? `<span class="badge-stage stage-published">✓ Publicado</span>`
+    ? `<span class="badge-stage stage-published" title="Edição homologada e publicada">✓ Publicado</span>`
     : (stage === 'in_review'
-      ? `<span class="badge-stage stage-in_review">✎ Em Revisão por Pares</span>`
-      : `<span class="badge-stage stage-draft">Rascunho Ativo</span>`);
+      ? `<span class="badge-stage stage-in_review" title="Versão submetida para avaliação por pares">✎ Em Revisão por Pares</span>`
+      : `<span class="badge-stage stage-draft" title="Documento em elaboração / rascunho">Rascunho Ativo</span>`);
 
   let tabContent = '';
 
