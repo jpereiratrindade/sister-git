@@ -1087,8 +1087,19 @@ static void load_env_file(const std::string &path) {
 }
 
 int main(int argc, char **argv) {
-  repo_root = getenv("SISTER_GIT_ROOT") ? getenv("SISTER_GIT_ROOT") : "/srv/git";
-  web_root = getenv("SISTER_GIT_WEB_ROOT") ? getenv("SISTER_GIT_WEB_ROOT") : "web";
+  repo_root = getenv("SISTER_GIT_ROOT") ? getenv("SISTER_GIT_ROOT") : "";
+  if (repo_root.empty()) {
+    if (fs::is_directory("/srv/git")) repo_root = "/srv/git";
+    else repo_root = ".";
+  }
+
+  web_root = getenv("SISTER_GIT_WEB_ROOT") ? getenv("SISTER_GIT_WEB_ROOT") : "";
+  if (web_root.empty()) {
+    if (fs::is_directory("web")) web_root = "web";
+    else if (fs::is_directory("/usr/local/share/sister-git/web")) web_root = "/usr/local/share/sister-git/web";
+    else web_root = "web";
+  }
+
   auth_token = getenv("SISTER_GIT_WEB_TOKEN") ? getenv("SISTER_GIT_WEB_TOKEN") : "";
 
   // Load .smtp.env if exists
@@ -1116,6 +1127,8 @@ int main(int argc, char **argv) {
     std::string a = argv[i];
     if (a == "--bind" && i + 1 < argc) bind = argv[++i];
     else if (a == "--port" && i + 1 < argc) port = std::stoi(argv[++i]);
+    else if (a == "--repos" && i + 1 < argc) repo_root = argv[++i];
+    else if (a == "--web" && i + 1 < argc) web_root = argv[++i];
     else if (a == "--smtp-user" && i + 1 < argc) g_smtp.user = argv[++i];
     else if (a == "--smtp-pass" && i + 1 < argc) g_smtp.pass = argv[++i];
     else if (a == "--smtp-from" && i + 1 < argc) g_smtp.from = argv[++i];
