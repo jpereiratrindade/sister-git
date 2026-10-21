@@ -213,9 +213,14 @@ function parseRoute() {
   // #/ or empty -> { mode: 'repos-dashboard' }
   // #/r/:repo/:tab or #/:repo/:tab -> { mode: 'repo-code', repo, tab, ref, path, base, head }
 
-  if (!segs.length || segs[0] === 'editorial' && segs.length === 1) {
-    if (segs[0] === 'editorial') return { mode: 'editorial-dashboard' };
-    return { mode: 'editorial-dashboard' }; // Default to editorial
+  // Se for explicitamente repositórios (#/repos ou #/)
+  if (segs[0] === 'repos' || location.hash === '#/' || location.hash === '#/repos') {
+    return { mode: 'repos-dashboard' };
+  }
+
+  // Raiz vazia sem hash ou #/editorial
+  if (!segs.length || (segs[0] === 'editorial' && segs.length === 1)) {
+    return { mode: 'editorial-dashboard' };
   }
 
   if (segs[0] === 'editorial' && segs.length >= 2) {
@@ -224,10 +229,6 @@ function parseRoute() {
       repo: segs[1],
       tab: segs[2] || 'manuscript'
     };
-  }
-
-  if (segs[0] === 'repos') {
-    return { mode: 'repos-dashboard' };
   }
 
   if (segs[0] === 'infra') {
