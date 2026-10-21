@@ -13,7 +13,8 @@ test: all
 	bash tests/test_web.sh
 
 deploy-srv: build/sister-git-web
-	scp build/sister-git-web jpereiratrindade@10.163.80.129:~/bin/sister-git-web
+	scp build/sister-git-web jpereiratrindade@10.163.80.129:~/bin/sister-git-web.new
+	ssh jpereiratrindade@10.163.80.129 'chmod +x ~/bin/sister-git-web.new && mv ~/bin/sister-git-web.new ~/bin/sister-git-web'
 	scp web/* jpereiratrindade@10.163.80.129:/usr/local/share/sister-git/web/
 
 clean:
