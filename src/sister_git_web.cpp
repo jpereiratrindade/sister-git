@@ -1413,7 +1413,9 @@ static Response route_post(const std::string &target, const std::string &, const
 
       std::string filename = json_extract(body, "filename");
       std::string b64 = json_extract(body, "content_base64");
+      if (b64.empty()) b64 = json_extract(body, "content_b64");
       std::string commit_msg = json_extract(body, "commit_msg");
+      if (commit_msg.empty()) commit_msg = json_extract(body, "message");
       std::string is_main = json_extract(body, "is_main");
       if (filename.empty() || !valid_path(filename)) return error(400, "Nome de arquivo inválido");
       if (commit_msg.empty()) commit_msg = "Upload de arquivo: " + filename;
@@ -1438,6 +1440,12 @@ static Response route_post(const std::string &target, const std::string &, const
                 m.replace(val_start + 1, val_end - val_start - 1, filename);
                 git_commit_file(name, ".sister-editorial.json", m, "editorial: definir " + filename + " como documento principal", author_name, author_email);
               }
+            }
+          } else {
+            size_t brace = m.find('{');
+            if (brace != std::string::npos) {
+              m.insert(brace + 1, "\n  \"document_main\": " + json(filename) + ",");
+              git_commit_file(name, ".sister-editorial.json", m, "editorial: definir " + filename + " como documento principal", author_name, author_email);
             }
           }
         }

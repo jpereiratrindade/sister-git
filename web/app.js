@@ -1262,12 +1262,17 @@ window.handleUploadDocument = async function(evt, repo) {
       binary += String.fromCharCode.apply(null, chunk);
     }
     const b64 = btoa(binary);
+    if (file.size > 0 && (!b64 || b64.length === 0)) {
+      throw new Error('Falha ao codificar o conteúdo do arquivo.');
+    }
 
     if (fb) fb.textContent = `Gravando commit no repositório ${repo}...`;
 
     const res = await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/upload`, {
       filename: file.name,
+      content_base64: b64,
       content_b64: b64,
+      commit_msg: message,
       message: message,
       is_main: isMain
     });
