@@ -457,7 +457,7 @@ static bool send_otp_email(const std::string &to, const std::string &code, std::
   return true;
 }
 
-static AuthUser authenticate_request(const std::string &headers) {
+static AuthUser authenticate_request(const std::string &headers, const std::string &target = "") {
   std::string token;
   std::string exp = "Authorization: Bearer ";
   size_t pos = headers.find(exp);
@@ -468,6 +468,34 @@ static AuthUser authenticate_request(const std::string &headers) {
     if (end == std::string::npos) end = headers.size();
     token = headers.substr(start, end - start);
     while (!token.empty() && token.back() == ' ') token.pop_back();
+  }
+
+  // Fallback 1: Cookie (ex.: sister_token=...)
+  if (token.empty()) {
+    size_t cpos = headers.find("Cookie: ");
+    if (cpos == std::string::npos) cpos = headers.find("cookie: ");
+    if (cpos != std::string::npos) {
+      std::string cstr = headers.substr(cpos + 8);
+      size_t cend = cstr.find_first_of("\r\n");
+      if (cend != std::string::npos) cstr = cstr.substr(0, cend);
+      size_t tpos = cstr.find("sister_token=");
+      if (tpos != std::string::npos) {
+        size_t vstart = tpos + 13;
+        size_t vend = cstr.find(';', vstart);
+        token = cstr.substr(vstart, (vend == std::string::npos ? cstr.size() : vend) - vstart);
+        while (!token.empty() && token.back() == ' ') token.pop_back();
+      }
+    }
+  }
+
+  // Fallback 2: Query param (?token=... ou &token=...)
+  if (token.empty() && !target.empty()) {
+    size_t qm = target.find('?');
+    if (qm != std::string::npos) {
+      std::string qs = target.substr(qm + 1);
+      auto q = query(qs);
+      if (q.count("token")) token = q.at("token");
+    }
   }
 
   // Master Token
@@ -1331,7 +1359,7 @@ static void client(int fd) {
     }
   }
 
-  AuthUser user = authenticate_request(header_part);
+  AuthUser user = authenticate_request(header_part, target);
   Response r;
   if (method == "GET" || method == "HEAD") {
     r = route(target, user);

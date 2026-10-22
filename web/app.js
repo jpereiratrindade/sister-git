@@ -14,7 +14,54 @@ let currentWorkspace = 'editorial'; // 'editorial' | 'repos' | 'infra'
 // ============================================================================
 
 const getToken = () => localStorage.getItem('sister_token') || '';
-const setToken = t => t ? localStorage.setItem('sister_token', t.trim()) : localStorage.removeItem('sister_token');
+const setToken = t => {
+  if (t) {
+    localStorage.setItem('sister_token', t.trim());
+    document.cookie = `sister_token=${encodeURIComponent(t.trim())}; path=/; SameSite=Lax; max-age=2592000`;
+  } else {
+    localStorage.removeItem('sister_token');
+    document.cookie = 'sister_token=; path=/; max-age=0';
+  }
+};
+
+window.downloadFile = async function(url, suggestedFilename) {
+  const token = getToken();
+  let finalUrl = url;
+  if (token && !finalUrl.includes('token=')) {
+    finalUrl += (finalUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+  }
+  showToast('⏳ Preparando download...');
+  try {
+    const headers = {};
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const res = await fetch(finalUrl, { headers });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(err.error || `Erro HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    let filename = suggestedFilename || 'download';
+    const cd = res.headers.get('Content-Disposition');
+    if (cd && cd.includes('filename=')) {
+      const match = cd.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) filename = match[1];
+    }
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    }, 1500);
+    showToast('✓ Download concluído!');
+  } catch (e) {
+    console.error('Download falhou:', e);
+    showToast('❌ Falha no download: ' + e.message);
+  }
+};
 
 const api = async (path, options = {}) => {
   const headers = options.headers || {};
@@ -792,7 +839,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
           </div>
         </div>
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-          <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(mainDoc)}" download="${esc(mainDoc)}" class="btn-primary" style="padding:8px 16px; font-size:0.84rem; text-decoration:none;" title="Baixar arquivo original na íntegra">
+          <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(mainDoc)}" onclick="event.preventDefault(); downloadFile(this.href, '${esc(mainDoc)}')" download="${esc(mainDoc)}" class="btn-primary" style="padding:8px 16px; font-size:0.84rem; text-decoration:none;" title="Baixar arquivo original na íntegra">
             ⬇ Baixar Arquivo Original (.${esc(ext)})
           </a>
           <a href="#/editorial/${encodeURIComponent(repo)}/upload" class="btn-cancel" style="padding:8px 16px; font-size:0.84rem; text-decoration:none; background:#fff;">
@@ -817,7 +864,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
             Este documento é redigido externamente no seu editor de texto preferido (Word ou LibreOffice). Baixe o arquivo original abaixo, faça suas revisões localmente e envie a nova versão na aba <strong>Upload &amp; Arquivos</strong> para registrar o histórico com integridade e proveniência Git.
           </p>
           <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
-            <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(mainDoc)}" download="${esc(mainDoc)}" class="btn-primary" style="padding:10px 22px; font-size:0.9rem; text-decoration:none;">
+            <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(mainDoc)}" onclick="event.preventDefault(); downloadFile(this.href, '${esc(mainDoc)}')" download="${esc(mainDoc)}" class="btn-primary" style="padding:10px 22px; font-size:0.9rem; text-decoration:none;">
               ⬇ Baixar ${esc(mainDoc)} (${fmt(blobData?.size || 0)})
             </a>
             <a href="#/editorial/${encodeURIComponent(repo)}/upload" class="btn-cancel" style="padding:10px 22px; font-size:0.9rem; text-decoration:none; background:#fff;">
@@ -910,7 +957,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
                     <td><code style="font-size:0.75rem; color:var(--muted);">${esc(e.hash.substr(0, 8))}</code></td>
                     <td style="text-align:right;">
                       <div style="display:inline-flex; gap:6px;">
-                        <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(e.name)}" download="${esc(e.name)}" class="btn-cancel" style="padding:3px 9px; font-size:0.75rem; background:#fff; text-decoration:none;" title="Baixar arquivo original">⬇ Baixar</a>
+                        <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(e.name)}" onclick="event.preventDefault(); downloadFile(this.href, '${esc(e.name)}')" download="${esc(e.name)}" class="btn-cancel" style="padding:3px 9px; font-size:0.75rem; background:#fff; text-decoration:none;" title="Baixar arquivo original">⬇ Baixar</a>
                         <a href="#/r/${encodeURIComponent(repo)}/code?path=${encodeURIComponent(e.name)}" class="btn-cancel" style="padding:3px 9px; font-size:0.75rem; background:#fff; text-decoration:none;">Git</a>
                       </div>
                     </td>
@@ -1360,7 +1407,7 @@ async function renderRepoCode(route) {
           <div class="blob-head">
             <span><strong>${esc(path)}</strong> (${blob.binary ? 'Arquivo binário' : fmt(blob.size_bytes)})</span>
             <div style="display:flex; gap:8px;">
-              <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?ref=${encodeURIComponent(ref || 'HEAD')}&path=${encodeURIComponent(path)}" download="${esc(path.split('/').pop())}" class="btn-primary" style="padding:4px 10px; font-size:0.75rem; text-decoration:none;">⬇ Baixar Raw</a>
+              <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?ref=${encodeURIComponent(ref || 'HEAD')}&path=${encodeURIComponent(path)}" onclick="event.preventDefault(); downloadFile(this.href, '${esc(path.split('/').pop())}')" download="${esc(path.split('/').pop())}" class="btn-primary" style="padding:4px 10px; font-size:0.75rem; text-decoration:none;">⬇ Baixar Raw</a>
               <a href="#/r/${encodeURIComponent(repo)}/code?ref=${encodeURIComponent(ref || '')}" class="btn-cancel" style="padding:4px 8px; font-size:0.75rem;">Voltar à pasta</a>
             </div>
           </div>
@@ -1962,13 +2009,28 @@ window.openCloneModal = function(repo, ref) {
   if (title) title.textContent = `Clonar ou Baixar: ${repo}`;
   if (sshInput) sshInput.value = sshClone;
   if (remoteInput) remoteInput.value = gitRemote;
+  const tkn = getToken();
+  const authQ = tkn ? `&token=${encodeURIComponent(tkn)}` : '';
+  const zipUrl = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=zip${authQ}`;
+  const tarUrl = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=tar.gz${authQ}`;
+  const zipName = `${repo}-${(ref || 'HEAD').replace(/\//g, '-')}.zip`;
+  const tarName = `${repo}-${(ref || 'HEAD').replace(/\//g, '-')}.tar.gz`;
+
   if (zipLink) {
-    zipLink.href = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=zip`;
-    zipLink.setAttribute('download', `${repo}-${(ref || 'HEAD').replace(/\//g, '-')}.zip`);
+    zipLink.href = zipUrl;
+    zipLink.setAttribute('download', zipName);
+    zipLink.onclick = (e) => {
+      e.preventDefault();
+      downloadFile(zipUrl, zipName);
+    };
   }
   if (tarLink) {
-    tarLink.href = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=tar.gz`;
-    tarLink.setAttribute('download', `${repo}-${(ref || 'HEAD').replace(/\//g, '-')}.tar.gz`);
+    tarLink.href = tarUrl;
+    tarLink.setAttribute('download', tarName);
+    tarLink.onclick = (e) => {
+      e.preventDefault();
+      downloadFile(tarUrl, tarName);
+    };
   }
 
   openModal('modalClone');
@@ -2001,6 +2063,10 @@ window.handleSearch = function(q) {
 
 window.addEventListener('hashchange', render);
 window.addEventListener('DOMContentLoaded', () => {
+  const t = getToken();
+  if (t && !document.cookie.includes('sister_token=')) {
+    document.cookie = `sister_token=${encodeURIComponent(t)}; path=/; SameSite=Lax; max-age=2592000`;
+  }
   updateAuthStatus();
   render();
 });
