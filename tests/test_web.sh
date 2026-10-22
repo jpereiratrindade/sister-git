@@ -123,6 +123,12 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/create_ed.json"
 grep -q '"ok":true' "$TMP/create_ed.json"
 grep -q '"type":"editorial"' "$TMP/create_ed.json"
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"to":"accepted","reason":"salto proibido"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition")" == 409 ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"tag":"ed/v0-invalida","title":"Inválida","notes":"sem aceite"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish")" == 409 ]]
 
 # 2. Verifica se manuscrito e manifesto foram criados no repositório bare
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/blob?ref=main&path=manuscrito.md" | grep -q 'Ecologia dos Campos'
@@ -138,12 +144,23 @@ curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/commits?ref=mai
 
 # 4. Registrar parecer editorial
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"to":"submitted","reason":"Manuscrito pronto para avaliação"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition" | grep -q '"to":"submitted"'
+git --git-dir="$TMP/repos/artigo-teste.git" for-each-ref --format='%(refname)' refs/sister/submissions | grep -q 'refs/sister/submissions/'
+git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | grep -q '"transitions"'
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"to":"in_review","reason":"Revisor designado"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition" | grep -q '"to":"in_review"'
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"reviewer":"Prof. Carlos","recommendation":"accept_with_revisions","comments":"Artigo excelente, favor detalhar a seção 3."}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/review" > "$TMP/review_ed.json"
 grep -q '"ok":true' "$TMP/review_ed.json"
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | python3 -m json.tool | grep -q 'Prof. Carlos'
 
 # 5. Publicar edição documental (cria tag ed/v1.0-publicado)
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"to":"accepted","reason":"Parecer favorável homologado"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition" | grep -q '"to":"accepted"'
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"tag_name":"ed/v1.0-publicado","notes":"Publicação da primeira edição com DOI e W3C PROV","publisher_name":"SisTer Editorial","publisher_email":"editorial@labeco.invalid"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish" > "$TMP/pub_ed.json"
@@ -161,10 +178,14 @@ file "$TMP/artigo.tar.gz" | grep -qi 'gzip'
 # 7. Testar upload de documento (DOCX / ODT / TEX / MD) e download raw
 printf 'PK\x03\x04teste-docx-binario\x00\xff' > "$TMP/artigo-original.docx"
 B64_SAMPLE=$(base64 -w0 "$TMP/artigo-original.docx")
+BEFORE_UPLOAD="$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)"
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d "{\"filename\":\"artigo-completo.docx\",\"content_base64\":\"$B64_SAMPLE\",\"commit_msg\":\"Upload do manuscrito original em DOCX\",\"is_main\":\"true\"}" \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload" > "$TMP/upload_resp.json"
 grep -q '"ok":true' "$TMP/upload_resp.json"
+AFTER_UPLOAD="$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)"
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-list --count "$BEFORE_UPLOAD..$AFTER_UPLOAD")" == 1 ]]
+git --git-dir="$TMP/repos/artigo-teste.git" show "$AFTER_UPLOAD:.sister-editorial.json" | grep -q 'artigo-completo.docx'
 
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=artigo-completo.docx" > "$TMP/artigo_baixado.docx"
 cmp "$TMP/artigo-original.docx" "$TMP/artigo_baixado.docx"

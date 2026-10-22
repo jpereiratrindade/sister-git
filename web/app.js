@@ -1166,11 +1166,21 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   const blobData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=HEAD&path=${encodeURIComponent(mainDoc)}`).catch(() => null);
   const rawMarkdown = blobData && !blobData.binary ? blobData.content : '# ' + title + '\n\nInicie a escrita do seu manuscrito.';
 
-  const stageBadge = stage === 'published'
-    ? `<span class="badge-stage stage-published" title="Edição homologada e publicada">✓ Publicado</span>`
-    : (stage === 'in_review'
-      ? `<span class="badge-stage stage-in_review" title="Versão submetida para avaliação por pares">✎ Em Revisão por Pares</span>`
-      : `<span class="badge-stage stage-draft" title="Documento em elaboração / rascunho">Rascunho Ativo</span>`);
+  const stageLabels = {
+    draft: 'Rascunho Ativo', submitted: 'Submetido', in_review: 'Em Revisão por Pares',
+    revision_required: 'Revisões Requeridas', resubmitted: 'Ressubmetido',
+    accepted: 'Aceito para Publicação', rejected: 'Rejeitado', withdrawn: 'Retirado', published: '✓ Publicado'
+  };
+  const stageClass = stage === 'published' ? 'stage-published' : (stage === 'draft' ? 'stage-draft' : 'stage-in_review');
+  const stageBadge = `<span class="badge-stage ${stageClass}">${esc(stageLabels[stage] || stage)}</span>`;
+  const transitionButtons = currentUser ? ({
+    draft: `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','submitted')">Submeter para avaliação</button>`,
+    submitted: currentUser.role === 'admin' ? `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','in_review')">Iniciar revisão</button>` : '',
+    in_review: currentUser.role === 'admin' ? `<button class="btn-cancel" onclick="handleEditorialTransition('${esc(repo)}','revision_required')">Solicitar revisões</button><button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','accepted')">Aceitar manuscrito</button><button class="btn-cancel" onclick="handleEditorialTransition('${esc(repo)}','rejected')">Rejeitar</button>` : '',
+    revision_required: `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','resubmitted')">Ressubmeter versão revisada</button>`,
+    resubmitted: currentUser.role === 'admin' ? `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','in_review')">Abrir nova rodada</button>` : '',
+    accepted: currentUser.role === 'admin' ? `<a class="btn-primary" href="#/editorial/${encodeURIComponent(repo)}/publish">Homologar publicação</a>` : ''
+  }[stage] || '') : '';
 
   let tabContent = '';
 
@@ -1418,9 +1428,9 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
             <h3 style="margin:0; color:var(--navy); font-size:1.1rem;">Edições Publicadas &amp; Proveniência Git</h3>
             <p style="margin:2px 0 0; color:var(--muted); font-size:0.82rem;">Versões com tags anotadas <code>ed/*</code> garantem imutabilidade e citação científica</p>
           </div>
-          <button type="button" class="btn-primary" onclick="openPublishModal('${esc(repo)}')">
-            + Publicar Nova Edição
-          </button>
+          ${stage === 'accepted' && currentUser?.role === 'admin'
+            ? `<button type="button" class="btn-primary" onclick="openPublishModal('${esc(repo)}')">+ Publicar Nova Edição</button>`
+            : `<span style="font-size:0.8rem; color:var(--muted);">Publicação disponível após decisão editorial <code>accepted</code>.</span>`}
         </div>
 
         ${editions.length ? editions.map(ed => `
@@ -1439,7 +1449,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
         `).join('') : `
           <div class="empty-state" style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:36px; text-align:center;">
             <p style="color:var(--muted); margin:0 0 16px;">Nenhuma edição formal publicada ainda.</p>
-            <button class="btn-primary" onclick="openPublishModal('${esc(repo)}')">Publicar Versão v1.0 🚀</button>
+            ${stage === 'accepted' && currentUser?.role === 'admin' ? `<button class="btn-primary" onclick="openPublishModal('${esc(repo)}')">Publicar Versão v1.0 🚀</button>` : ''}
           </div>
         `}
       </div>
@@ -1473,6 +1483,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
       <div class="doc-provenance-box">
         <span>Identificador: <strong>${esc(repo)}</strong> (refs/heads/main)</span>
         <span>Código Git: <a href="#/r/${encodeURIComponent(repo)}/code" style="color:var(--blue); text-decoration:underline;">Ver arquivos brutos ➔</a></span>
+        ${transitionButtons ? `<span style="display:flex; gap:8px; flex-wrap:wrap;">${transitionButtons}</span>` : ''}
       </div>
     </header>
 
@@ -1517,6 +1528,25 @@ window.handleEditorInput = function(val, repo) {
   if (count) count.textContent = `${val.length} caracteres`;
   if (repo) {
     try { localStorage.setItem('sister_draft_' + repo, val); } catch (_) {}
+  }
+};
+
+window.handleEditorialTransition = async function(repo, nextStage) {
+  const reason = prompt('Justificativa para esta transição editorial:');
+  if (reason === null) return;
+  if (!reason.trim()) {
+    alert('Informe uma justificativa para preservar a trilha editorial.');
+    return;
+  }
+  try {
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/transition`, {
+      to: nextStage,
+      reason: reason.trim()
+    });
+    showToast('✓ Estado editorial atualizado com proveniência Git.');
+    await render();
+  } catch (err) {
+    alert('Erro na transição editorial: ' + err.message);
   }
 };
 
