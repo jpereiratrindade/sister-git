@@ -1689,9 +1689,7 @@ window.handleUploadDocument = async function(evt, repo) {
     const res = await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/upload`, {
       filename: file.name,
       content_base64: b64,
-      content_b64: b64,
       commit_msg: message,
-      message: message,
       is_main: isMain
     });
 

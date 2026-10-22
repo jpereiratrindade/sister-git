@@ -232,6 +232,9 @@ git --git-dir="$TMP/repos/artigo-teste.git" show "$AFTER_UPLOAD:.sister-editoria
 
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=artigo-completo.docx" > "$TMP/artigo_baixado.docx"
 cmp "$TMP/artigo-original.docx" "$TMP/artigo_baixado.docx"
+[[ "$(sha256sum "$TMP/artigo-original.docx" | cut -d' ' -f1)" == "$(sha256sum "$TMP/artigo_baixado.docx" | cut -d' ' -f1)" ]]
+git --git-dir="$TMP/repos/artigo-teste.git" show "HEAD:artigo-completo.docx" > "$TMP/artigo_blob.docx"
+[[ "$(sha256sum "$TMP/artigo-original.docx" | cut -d' ' -f1)" == "$(sha256sum "$TMP/artigo_blob.docx" | cut -d' ' -f1)" ]]
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'artigo-completo.docx'
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?ref=ed%2Fv1.0-publicado&format=zip" > "$TMP/edicao-publicada.zip"
 python3 - "$TMP/edicao-publicada.zip" <<'PY'
@@ -243,6 +246,27 @@ PY
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"filename":"corrompido.pdf","content_base64":"%%%INVALIDO%%%","commit_msg":"deve falhar"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload")" == 400 ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"filename":"vazio.pdf","content_base64":"","commit_msg":"deve rejeitar vazio"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload")" == 400 ]]
+
+# Formatos binários obrigatórios: original, blob Git e download devem ter o mesmo SHA-256.
+printf 'PK\x03\x04conteudo-odt\x00\x80\xff' > "$TMP/amostra.odt"
+printf '%%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n\x00\xff' > "$TMP/amostra.pdf"
+printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x80\xff' > "$TMP/amostra.png"
+printf '\x00\x01\x02\x7f\x80\xfe\xfftexto\x00fim' > "$TMP/amostra.bin"
+for SAMPLE in amostra.odt amostra.pdf amostra.png amostra.bin; do
+  SAMPLE_B64="$(base64 -w0 "$TMP/$SAMPLE")"
+  curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+    -d "{\"filename\":\"$SAMPLE\",\"content_base64\":\"$SAMPLE_B64\",\"commit_msg\":\"Teste de integridade $SAMPLE\",\"is_main\":false}" \
+    "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload" > "$TMP/upload-$SAMPLE.json"
+  grep -q '"ok":true' "$TMP/upload-$SAMPLE.json"
+  git --git-dir="$TMP/repos/artigo-teste.git" show "HEAD:$SAMPLE" > "$TMP/blob-$SAMPLE"
+  curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=$SAMPLE" > "$TMP/download-$SAMPLE"
+  ORIGINAL_SHA="$(sha256sum "$TMP/$SAMPLE" | cut -d' ' -f1)"
+  [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/blob-$SAMPLE" | cut -d' ' -f1)" ]]
+  [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/download-$SAMPLE" | cut -d' ' -f1)" ]]
+done
 
 if SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" "$HERE/build/sister-git-web" --bind 0.0.0.0 --port $((PORT+1)) >"$TMP/public.log" 2>&1; then echo '[ERRO] bind público aceito sem token' >&2; exit 1; fi
 git --git-dir="$TMP/repos/MORFO.git" fsck --full >/dev/null
