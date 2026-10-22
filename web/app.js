@@ -1898,7 +1898,12 @@ async function renderReposDashboard() {
 
 async function renderRepoCode(route) {
   const { repo, tab, ref, path, base, head } = route;
-  const rInfo = allReposCache.find(r => r.name === repo) || {};
+  let rInfo = allReposCache.find(r => r.name === repo);
+  if (!rInfo) {
+    const reposData = await api('/api/v1/repos');
+    allReposCache = reposData.repositories || [];
+    rInfo = allReposCache.find(r => r.name === repo) || {};
+  }
   crumbCurrent.innerHTML = `<a href="#/repos">Repositórios</a> / <strong>${esc(repo)}</strong>`;
 
   const [refsData, treeData] = await Promise.all([
@@ -2004,7 +2009,7 @@ async function renderRepoCode(route) {
             <div>
               <strong>${esc(c.subject)}</strong>
               <div style="font-size:0.75rem; color:var(--muted); margin-top:2px;">
-                ${esc(c.author)} &lt;${esc(c.email)}&gt; · ${timeAgo(c.date)}
+                ${esc(c.author)} &lt;${esc(c.email)}&gt; · ${formatDate(c.date)} (${timeAgo(c.date)})
               </div>
             </div>
             <div>
@@ -2073,7 +2078,7 @@ async function renderRepoCode(route) {
           </a>
           <span>🏷️ ${(refsData.tags || []).length} tags</span>
           ${rInfo.last_commit ? `
-            <span title="${esc(rInfo.last_commit.subject)}">Último commit: <code style="font-size:0.75rem;">${esc(rInfo.last_commit.short_hash)}</code> (${timeAgo(rInfo.last_commit.date)})</span>
+            <span title="${esc(rInfo.last_commit.subject)}">Último commit: <code style="font-size:0.75rem;">${esc(rInfo.last_commit.short_hash)}</code> · ${formatDate(rInfo.last_commit.date)} (${timeAgo(rInfo.last_commit.date)})</span>
           ` : ''}
         </div>
       </div>

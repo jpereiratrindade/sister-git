@@ -71,6 +71,8 @@ try:
             "document.querySelector('#publishNotes').value='Publicado pelo Firefox headless';"
             "document.querySelector('#modalPublish form').requestSubmit();")
     wait_js("return document.body.innerText.toLowerCase().includes('publicado') && document.body.innerText.includes('ed/v1.0')")
+    request("POST", f"/session/{session}/url", {"url": base + "#/r/e2e-editorial/code"})
+    wait_js("return [...document.querySelectorAll('span')].some(e => e.innerText.includes('Último commit:') && !e.innerText.includes('—'))")
 finally:
     try: request("DELETE", f"/session/{session}")
     except Exception: pass
