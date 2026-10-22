@@ -1155,6 +1155,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   const reviews = manifest.reviews || [];
   const responses = manifest.responses || [];
   const canWrite = currentUser && (currentUser.role === 'admin' || edData.project_role === 'owner' || edData.project_role === 'editor');
+  const canDecide = currentUser && (currentUser.role === 'admin' || edData.project_role === 'editor');
 
   // Detect main document
   let mainDoc = manifest.document_main;
@@ -1177,11 +1178,11 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   const stageBadge = `<span class="badge-stage ${stageClass}">${esc(stageLabels[stage] || stage)}</span>`;
   const transitionButtons = currentUser ? ({
     draft: `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','submitted')">Submeter para avaliação</button>`,
-    submitted: currentUser.role === 'admin' ? `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','in_review')">Iniciar revisão</button>` : '',
-    in_review: currentUser.role === 'admin' ? `<button class="btn-cancel" onclick="handleEditorialTransition('${esc(repo)}','revision_required')">Solicitar revisões</button><button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','accepted')">Aceitar manuscrito</button><button class="btn-cancel" onclick="handleEditorialTransition('${esc(repo)}','rejected')">Rejeitar</button>` : '',
+    submitted: canDecide ? `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','in_review')">Iniciar revisão</button>` : '',
+    in_review: canDecide ? `<button class="btn-cancel" onclick="handleEditorialTransition('${esc(repo)}','revision_required')">Solicitar revisões</button><button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','accepted')">Aceitar manuscrito</button><button class="btn-cancel" onclick="handleEditorialTransition('${esc(repo)}','rejected')">Rejeitar</button>` : '',
     revision_required: `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','resubmitted')">Ressubmeter versão revisada</button>`,
-    resubmitted: currentUser.role === 'admin' ? `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','in_review')">Abrir nova rodada</button>` : '',
-    accepted: currentUser.role === 'admin' ? `<a class="btn-primary" href="#/editorial/${encodeURIComponent(repo)}/publish">Homologar publicação</a>` : '',
+    resubmitted: canDecide ? `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','in_review')">Abrir nova rodada</button>` : '',
+    accepted: canDecide ? `<a class="btn-primary" href="#/editorial/${encodeURIComponent(repo)}/publish">Homologar publicação</a>` : '',
     published: `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','draft')">Iniciar nova edição</button>`
   }[stage] || '') : '';
 
@@ -1469,7 +1470,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
             <h3 style="margin:0; color:var(--navy); font-size:1.1rem;">Edições Publicadas &amp; Proveniência Git</h3>
             <p style="margin:2px 0 0; color:var(--muted); font-size:0.82rem;">Versões com tags anotadas <code>ed/*</code> garantem imutabilidade e citação científica</p>
           </div>
-          ${stage === 'accepted' && currentUser?.role === 'admin'
+          ${stage === 'accepted' && canDecide
             ? `<button type="button" class="btn-primary" onclick="openPublishModal('${esc(repo)}')">+ Publicar Nova Edição</button>`
             : `<span style="font-size:0.8rem; color:var(--muted);">Publicação disponível após decisão editorial <code>accepted</code>.</span>`}
         </div>
@@ -1494,7 +1495,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
         `).join('') : `
           <div class="empty-state" style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:36px; text-align:center;">
             <p style="color:var(--muted); margin:0 0 16px;">Nenhuma edição formal publicada ainda.</p>
-            ${stage === 'accepted' && currentUser?.role === 'admin' ? `<button class="btn-primary" onclick="openPublishModal('${esc(repo)}')">Publicar Versão v1.0 🚀</button>` : ''}
+            ${stage === 'accepted' && canDecide ? `<button class="btn-primary" onclick="openPublishModal('${esc(repo)}')">Publicar Versão v1.0 🚀</button>` : ''}
           </div>
         `}
       </div>

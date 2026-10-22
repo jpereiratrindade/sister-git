@@ -1497,7 +1497,7 @@ static Response route_post(const std::string &target, const std::string &, const
       auto cur_man = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
       if (cur_man.status != 0 || !valid_json_object(cur_man.out)) return error(409, "Manifesto editorial ausente ou inválido");
       std::string current = json_extract(cur_man.out, "current_stage");
-      bool admin = user.role == "admin";
+      bool admin = user.role == "admin" || project_member_role(name, user.email) == "editor";
       bool allowed =
         (current == "draft" && next == "submitted") ||
         (admin && current == "submitted" && next == "in_review") ||
@@ -1613,7 +1613,7 @@ static Response route_post(const std::string &target, const std::string &, const
     }
 
     if (action == "editorial/publish") {
-      if (user.role != "admin") return error(403, "Publicação restrita ao administrador editorial");
+      if (user.role != "admin" && project_member_role(name, user.email) != "editor") return error(403, "Publicação restrita ao editor responsável pelo projeto");
       std::string tag = json_extract(body, "tag");
       if (tag.empty()) tag = json_extract(body, "tag_name");
       std::string title = json_extract(body, "title");

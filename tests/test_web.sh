@@ -80,6 +80,15 @@ curl -fsS -X POST -H "Content-Type: application/json" \
   -d '{"email":"colega@embrapa.br","code":"123456"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/auth/verify-code" > "$TMP/colega_verify.json"
 COLEGA_TOKEN="$(grep -o '"token":"[^"]*"' "$TMP/colega_verify.json" | cut -d'"' -f4)"
+curl -fsS -H "Authorization: Bearer $OTP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"email":"editor@embrapa.br","name":"Editor Responsável","role":"researcher"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/admin/users" | grep -q '"ok":true'
+curl -fsS -X POST -H "Content-Type: application/json" -d '{"email":"editor@embrapa.br"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/auth/request-code" >/dev/null
+curl -fsS -X POST -H "Content-Type: application/json" \
+  -d '{"email":"editor@embrapa.br","code":"123456"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/auth/verify-code" > "$TMP/editor_verify.json"
+EDITOR_TOKEN="$(grep -o '"token":"[^"]*"' "$TMP/editor_verify.json" | cut -d'"' -f4)"
 # Usuário autenticado não pode escrever em projeto público que não possui.
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $COLEGA_TOKEN" -H "Content-Type: application/json" \
   -d '{"content":"intrusão","message":"não autorizado"}' \
@@ -135,6 +144,9 @@ grep -q '"title":"Ecologia dos Campos"' "$TMP/repos_metadata.json"
 grep -q '"description":"Artigo sobre ecologia"' "$TMP/repos_metadata.json"
 grep -q '"current_stage":"draft"' "$TMP/repos_metadata.json"
 grep -q '"editorial_tags":0' "$TMP/repos_metadata.json"
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"email":"editor@embrapa.br","role":"editor"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/assign-member" | grep -q '"role":"editor"'
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"filename":".sister-editorial.json","content":"{\"current_stage\":\"accepted\"}","message":"bypass"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/save")" == 403 ]]
@@ -167,7 +179,7 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition" | grep -q '"to":"submitted"'
 git --git-dir="$TMP/repos/artigo-teste.git" for-each-ref --format='%(refname)' refs/sister/submissions | grep -q 'refs/sister/submissions/'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | grep -q '"transitions"'
-curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+curl -fsS -H "Authorization: Bearer $EDITOR_TOKEN" -H "Content-Type: application/json" \
   -d '{"to":"in_review","reason":"Revisor designado"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition" | grep -q '"to":"in_review"'
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $COLEGA_TOKEN" -H "Content-Type: application/json" \
@@ -199,12 +211,15 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"to":"accepted","reason":""}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition")" == 400 ]]
-curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $COLEGA_TOKEN" -H "Content-Type: application/json" \
+  -d '{"to":"accepted","reason":"revisor não decide"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition")" == 403 ]]
+curl -fsS -H "Authorization: Bearer $EDITOR_TOKEN" -H "Content-Type: application/json" \
   -d '{"to":"accepted","reason":"Parecer favorável homologado"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition" | grep -q '"to":"accepted"'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | grep -q '"outcome":"accepted"'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | grep -q '"justification":"Parecer favorável homologado"'
-curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+curl -fsS -H "Authorization: Bearer $EDITOR_TOKEN" -H "Content-Type: application/json" \
   -d '{"tag_name":"ed/v1.0-publicado","notes":"Publicação da primeira edição com DOI e W3C PROV","publisher_name":"SisTer Editorial","publisher_email":"editorial@labeco.invalid"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish" > "$TMP/pub_ed.json"
 grep -q '"ok":true' "$TMP/pub_ed.json"
