@@ -1015,7 +1015,14 @@ static Response compare(const std::string &name, const std::map<std::string, std
 }
 
 static Response editorial(const std::string &name, const AuthUser &user) {
-  auto r = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
+  std::string manifest_ref = "HEAD";
+  if (!user.authenticated) {
+    auto latest = run({"git", "--git-dir=" + git_dir(name), "for-each-ref", "--sort=-creatordate", "--count=1", "--format=%(refname:short)", "refs/tags/ed"});
+    manifest_ref = latest.status == 0 ? latest.out : "";
+    while (!manifest_ref.empty() && std::isspace(static_cast<unsigned char>(manifest_ref.back()))) manifest_ref.pop_back();
+    if (manifest_ref.empty()) return error(404, "Nenhuma edição pública disponível");
+  }
+  auto r = run({"git", "--git-dir=" + git_dir(name), "show", manifest_ref + ":.sister-editorial.json"});
   bool has_manifest = r.status == 0;
   std::string manifest_raw = has_manifest ? r.out : "{}";
   auto tr = run({"git", "--git-dir=" + git_dir(name), "for-each-ref", "--sort=-creatordate", "--format=%(refname)%09%(objectname)%09%(creatordate:iso-strict)%09%(subject)", "refs/tags/ed"});
@@ -1041,10 +1048,20 @@ static Response editorial(const std::string &name, const AuthUser &user) {
   std::string owner = repo_owner(name);
   std::string project_role = user.role == "admin" ? "editor" : (owner == user.email ? "owner" : project_member_role(name, user.email));
   std::string manifest_json = manifest_valid ? manifest_raw : "{}";
+  if (!user.authenticated && manifest_valid) {
+    if (json_extract(manifest_raw, "current_stage") != "published") return error(404, "Edição pública inválida");
+    manifest_json = "{\"title\":" + json(json_extract(manifest_raw, "title")) +
+                    ",\"abstract\":" + json(json_extract(manifest_raw, "abstract")) +
+                    ",\"document_main\":" + json(json_extract(manifest_raw, "document_main")) +
+                    ",\"current_stage\":\"published\",\"published_ref\":" + json(manifest_ref) + "}";
+  }
   std::string manifest_error = manifest_valid ? "null" : json("Manifesto .sister-editorial.json contém JSON inválido");
-  auto head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
+  auto head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", manifest_ref});
   std::string head_sha = head.status == 0 ? head.out : "";
   while (!head_sha.empty() && std::isspace(static_cast<unsigned char>(head_sha.back()))) head_sha.pop_back();
+  if (!user.authenticated) {
+    return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"published_commit\":" + json(head_sha) + ",\"is_editorial\":true,\"manifest\":" + manifest_json + ",\"tags\":" + tags_json + "}"};
+  }
   return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"head\":" + json(head_sha) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
 }
 
@@ -1161,6 +1178,20 @@ static Response route(const std::string &target, const AuthUser &user) {
     if (!is_repo_visible(name, user)) return error(404, "Repositório não encontrado");
 
     std::string action = slash == std::string::npos ? "" : rest.substr(slash + 1);
+
+    bool anonymous_editorial = !user.authenticated && repo_type(name) == "editorial";
+    if (anonymous_editorial && action != "editorial") {
+      std::string ref = q.count("ref") ? q.at("ref") : "";
+      bool published_ref = ref.rfind("ed/", 0) == 0 && valid_revision(ref);
+      if (published_ref) {
+        auto published_manifest = run({"git", "--git-dir=" + git_dir(name), "show", ref + ":.sister-editorial.json"});
+        published_ref = published_manifest.status == 0 && valid_json_object(published_manifest.out) &&
+                        json_extract(published_manifest.out, "current_stage") == "published";
+      }
+      if ((action != "raw" && action != "archive" && action != "tree" && action != "blob") || !published_ref) {
+        return error(403, "Acesso público limitado a artefatos de edições publicadas ed/*");
+      }
+    }
 
     if (action == "refs") return refs(name);
     if (action == "commits") return commits(name, q);

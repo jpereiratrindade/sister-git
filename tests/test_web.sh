@@ -100,7 +100,7 @@ git --git-dir="$TMP/repos/MORFO.git" config sister.type editorial
 
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/repos_ed.json"
 grep -q '"type":"editorial"' "$TMP/repos_ed.json"
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/MORFO/editorial" > "$TMP/morfo_ed.json"
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/MORFO/editorial" > "$TMP/morfo_ed.json"
 grep -q '"is_editorial":true' "$TMP/morfo_ed.json"
 grep -q '"has_manifest":true' "$TMP/morfo_ed.json"
 grep -q 'ed/v1.0' "$TMP/morfo_ed.json"
@@ -111,7 +111,7 @@ printf '{"project_type":"editorial",, "title":"Quebrado"}\n' > "$TMP/work/.siste
 git -C "$TMP/work" add .sister-editorial.json
 git -C "$TMP/work" commit -qm "test: add malformed editorial manifest"
 git -C "$TMP/work" push -q "$TMP/repos/MORFO.git" main
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/MORFO/editorial" > "$TMP/malformed_ed.json"
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/MORFO/editorial" > "$TMP/malformed_ed.json"
 python3 -m json.tool "$TMP/malformed_ed.json" >/dev/null
 grep -q '"manifest":{}' "$TMP/malformed_ed.json"
 grep -q 'JSON inválido' "$TMP/malformed_ed.json"
@@ -150,16 +150,16 @@ MANIFEST_B64="$(printf '{\"current_stage\":\"accepted\"}' | base64 -w0)"
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish")" == 409 ]]
 
 # 2. Verifica se manuscrito e manifesto foram criados no repositório bare
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/blob?ref=main&path=manuscrito.md" | grep -q 'Ecologia dos Campos'
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q '"is_editorial":true'
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/blob?ref=main&path=manuscrito.md" | grep -q 'Ecologia dos Campos'
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q '"is_editorial":true'
 
 # 3. Salvar nova versão do manuscrito
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"content":"# Ecologia dos Campos\n\nTexto atualizado na revisão editorial.\n\nNovas descobertas.","message":"Revisão da introdução com novas fontes","author_name":"Dra. Ana","author_email":"ana@labeco.invalid"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/save" > "$TMP/save_ed.json"
 grep -q '"ok":true' "$TMP/save_ed.json"
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/blob?ref=main&path=manuscrito.md" | grep -q 'Texto atualizado na revisão'
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/commits?ref=main" | grep -q 'Revisão da introdução com novas fontes'
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/blob?ref=main&path=manuscrito.md" | grep -q 'Texto atualizado na revisão'
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/commits?ref=main" | grep -q 'Revisão da introdução com novas fontes'
 
 # 4. Registrar parecer editorial
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
@@ -209,6 +209,10 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish" > "$TMP/pub_ed.json"
 grep -q '"ok":true' "$TMP/pub_ed.json"
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | python3 -m json.tool | grep -q 'ed/v1.0-publicado'
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" > "$TMP/public_editorial.json"
+if grep -Eq 'reviews|responses|transitions|decisions|owner' "$TMP/public_editorial.json"; then echo '[ERRO] metadados editoriais internos expostos publicamente' >&2; exit 1; fi
+[[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?ref=HEAD&path=manuscrito.md")" == 403 ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/commits?ref=main")" == 403 ]]
 git --git-dir="$TMP/repos/artigo-teste.git" tag -l | grep -q 'ed/v1.0-publicado'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"current_stage": "published"'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"editions"'
@@ -241,14 +245,14 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   -d '{"content":"# Segunda edição\n\nConteúdo posterior à publicação.","message":"Inicia segunda edição"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/save" >/dev/null
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?ref=ed%2Fv1.0-publicado&path=manuscrito.md" > "$TMP/manuscrito-publicado.md"
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?ref=HEAD&path=manuscrito.md" > "$TMP/manuscrito-head.md"
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?ref=HEAD&path=manuscrito.md" > "$TMP/manuscrito-head.md"
 grep -q 'Texto atualizado na revisão' "$TMP/manuscrito-publicado.md"
 grep -q 'Segunda edição' "$TMP/manuscrito-head.md"
 
 # 6. Testar download de arquivo compactado (ZIP e TAR.GZ)
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=zip" > "$TMP/artigo.zip"
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=zip" > "$TMP/artigo.zip"
 file "$TMP/artigo.zip" | grep -qi 'zip'
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=tar.gz" > "$TMP/artigo.tar.gz"
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=tar.gz" > "$TMP/artigo.tar.gz"
 file "$TMP/artigo.tar.gz" | grep -qi 'gzip'
 
 # 7. Testar upload de documento (DOCX / ODT / TEX / MD) e download raw
@@ -269,14 +273,14 @@ git --git-dir="$TMP/repos/artigo-teste.git" show "$AFTER_UPLOAD:.sister-editoria
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/save")" == 409 ]]
 grep -q 'Conflito de concorrência' "$TMP/stale-write.json"
 [[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)" == "$AFTER_UPLOAD" ]]
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q "\"head\":\"$AFTER_UPLOAD\""
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q "\"head\":\"$AFTER_UPLOAD\""
 
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=artigo-completo.docx" > "$TMP/artigo_baixado.docx"
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=artigo-completo.docx" > "$TMP/artigo_baixado.docx"
 cmp "$TMP/artigo-original.docx" "$TMP/artigo_baixado.docx"
 [[ "$(sha256sum "$TMP/artigo-original.docx" | cut -d' ' -f1)" == "$(sha256sum "$TMP/artigo_baixado.docx" | cut -d' ' -f1)" ]]
 git --git-dir="$TMP/repos/artigo-teste.git" show "HEAD:artigo-completo.docx" > "$TMP/artigo_blob.docx"
 [[ "$(sha256sum "$TMP/artigo-original.docx" | cut -d' ' -f1)" == "$(sha256sum "$TMP/artigo_blob.docx" | cut -d' ' -f1)" ]]
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'artigo-completo.docx'
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'artigo-completo.docx'
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?ref=ed%2Fv1.0-publicado&format=zip" > "$TMP/edicao-publicada.zip"
 python3 - "$TMP/edicao-publicada.zip" <<'PY'
 import sys, zipfile
@@ -303,7 +307,7 @@ for SAMPLE in amostra.odt amostra.pdf amostra.png amostra.bin; do
     "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload" > "$TMP/upload-$SAMPLE.json"
   grep -q '"ok":true' "$TMP/upload-$SAMPLE.json"
   git --git-dir="$TMP/repos/artigo-teste.git" show "HEAD:$SAMPLE" > "$TMP/blob-$SAMPLE"
-  curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=$SAMPLE" > "$TMP/download-$SAMPLE"
+  curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=$SAMPLE" > "$TMP/download-$SAMPLE"
   ORIGINAL_SHA="$(sha256sum "$TMP/$SAMPLE" | cut -d' ' -f1)"
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/blob-$SAMPLE" | cut -d' ' -f1)" ]]
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/download-$SAMPLE" | cut -d' ' -f1)" ]]
