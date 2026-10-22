@@ -51,6 +51,7 @@ Para que o processo editorial seja imutável e viaje junto com o repositório, c
 ```json
 {
   "$schema": "https://sister-git.labeco.org/schemas/editorial-v1.json",
+  "schema_version": 1,
   "project_type": "editorial",
   "title": "Dinâmica dos Campos Nativos no Bioma Pampa",
   "document_main": "manuscrito.md",
@@ -92,6 +93,8 @@ Para que o processo editorial seja imutável e viaje junto com o repositório, c
   ]
 }
 ```
+
+O campo numérico `schema_version` governa compatibilidade e migração. Manifestos sem versão são tratados como legados: permanecem legíveis e podem ser migrados explicitamente pela interface. A migração acrescenta somente os campos v1 ausentes, cria um commit auditável e nunca reescreve o histórico. Versões futuras desconhecidas são recusadas de forma restritiva.
 
 ---
 
@@ -141,4 +144,3 @@ git --git-dir=/srv/git/SOFTWARE.git config sister.type software
 ---
 
 *Sempre pronto. Sempre incompleto!*
-

@@ -144,6 +144,27 @@ grep -q '"title":"Ecologia dos Campos"' "$TMP/repos_metadata.json"
 grep -q '"description":"Artigo sobre ecologia"' "$TMP/repos_metadata.json"
 grep -q '"current_stage":"draft"' "$TMP/repos_metadata.json"
 grep -q '"editorial_tags":0' "$TMP/repos_metadata.json"
+LEGACY_PARENT="$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)"
+printf '{"title":"Ecologia dos Campos","document_main":"manuscrito.md","current_stage":"draft"}\n' > "$TMP/legacy-manifest.json"
+LEGACY_BLOB="$(git --git-dir="$TMP/repos/artigo-teste.git" hash-object -w "$TMP/legacy-manifest.json")"
+LEGACY_INDEX="$TMP/legacy-index"
+GIT_INDEX_FILE="$LEGACY_INDEX" git --git-dir="$TMP/repos/artigo-teste.git" read-tree "$LEGACY_PARENT"
+GIT_INDEX_FILE="$LEGACY_INDEX" git --git-dir="$TMP/repos/artigo-teste.git" update-index --add --cacheinfo 100644 "$LEGACY_BLOB" .sister-editorial.json
+LEGACY_TREE="$(GIT_INDEX_FILE="$LEGACY_INDEX" git --git-dir="$TMP/repos/artigo-teste.git" write-tree)"
+LEGACY_COMMIT="$(printf 'test: legacy manifest\n' | git --git-dir="$TMP/repos/artigo-teste.git" -c user.name='Teste' -c user.email='teste@example.invalid' commit-tree "$LEGACY_TREE" -p "$LEGACY_PARENT")"
+git --git-dir="$TMP/repos/artigo-teste.git" update-ref refs/heads/main "$LEGACY_COMMIT" "$LEGACY_PARENT"
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q '"migration_required":true'
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d "{\"expected_head\":\"$LEGACY_COMMIT\"}" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/migrate" > "$TMP/migration.json"
+grep -q '"migrated":true' "$TMP/migration.json"
+MIGRATED_COMMIT="$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)"
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-list --count "$LEGACY_COMMIT..$MIGRATED_COMMIT")" == 1 ]]
+git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | grep -q '"schema_version": 1'
+git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | grep -q '"transitions": \[\]'
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" -d '{}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/migrate" | grep -q '"migrated":false'
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)" == "$MIGRATED_COMMIT" ]]
 git clone -q "$TMP/repos/artigo-teste.git" "$TMP/direct-push"
 git -C "$TMP/direct-push" config user.name 'Tentativa Direta'
 git -C "$TMP/direct-push" config user.email 'direto@example.invalid'
@@ -237,7 +258,7 @@ if grep -Eq 'reviews|responses|transitions|decisions|owner' "$TMP/public_editori
 [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?ref=HEAD&path=manuscrito.md")" == 403 ]]
 [[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/commits?ref=main")" == 403 ]]
 git --git-dir="$TMP/repos/artigo-teste.git" tag -l | grep -q 'ed/v1.0-publicado'
-git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"current_stage": "published"'
+git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -Eq '"current_stage":[[:space:]]*"published"'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"editions"'
 
 # Simular falha intermediária: commit publicado persistiu, mas tag não existe.

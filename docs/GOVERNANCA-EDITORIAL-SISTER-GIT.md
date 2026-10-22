@@ -100,6 +100,7 @@ Para que a proveniência não dependa de bancos de dados externos e viaje junto 
 ```json
 {
   "$schema": "https://sister-git.labeco.org/schemas/editorial-v1.json",
+  "schema_version": 1,
   "project_type": "editorial",
   "title": "Dinâmica Temporal e Conservação dos Campos Nativos no Bioma Pampa",
   "document_main": "manuscrito_completo.docx",
@@ -146,4 +147,3 @@ Para que a proveniência não dependa de bancos de dados externos e viaje junto 
 
 *Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)*  
 *Embrapa Pecuária Sul · SisTer Git Editorial*
-

@@ -1533,6 +1533,14 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
       </div>
     </header>
 
+    ${edData.migration_required && canWrite ? `
+      <div class="notice-box" style="margin:16px 24px;">
+        <strong>Manifesto editorial legado</strong>
+        <p>Este projeto precisa de migração auditável para o esquema v1 antes da próxima evolução.</p>
+        <button type="button" class="btn-primary" onclick="migrateEditorialManifest('${esc(repo)}')">Migrar manifesto para v1</button>
+      </div>
+    ` : ''}
+
     <nav class="doc-tabs-bar" aria-label="Navegação do Artigo">
       <a href="#/editorial/${encodeURIComponent(repo)}/manuscript" class="doc-tab ${tab === 'manuscript' ? 'active' : ''}">
         <span>📖 Manuscrito &amp; Leitura</span>
@@ -1628,6 +1636,19 @@ window.handleEditorialTransition = async function(repo, nextStage) {
     await render();
   } catch (err) {
     alert('Erro na transição editorial: ' + err.message);
+  }
+};
+
+window.migrateEditorialManifest = async function(repo) {
+  try {
+    const result = await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/migrate`, {
+      expected_head: (window.sisterEditorialHeads || {})[repo] || ''
+    });
+    if (result.commit) window.sisterEditorialHeads[repo] = result.commit;
+    showToast(result.migrated ? '✓ Manifesto migrado para o esquema v1.' : 'Manifesto já estava atualizado.');
+    await render();
+  } catch (err) {
+    alert('Erro ao migrar manifesto: ' + err.message);
   }
 };
 

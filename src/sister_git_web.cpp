@@ -528,6 +528,40 @@ static bool json_append_object(std::string &body, const std::string &array_key, 
   return valid_json_object(body);
 }
 
+static bool json_add_raw_field(std::string &body, const std::string &key, const std::string &raw_value) {
+  if (body.find("\"" + key + "\":") != std::string::npos) return true;
+  size_t close = body.rfind('}');
+  if (close == std::string::npos) return false;
+  size_t prev = close;
+  while (prev > 0 && std::isspace(static_cast<unsigned char>(body[prev - 1]))) --prev;
+  bool empty = prev > 0 && body[prev - 1] == '{';
+  body.insert(close, std::string(empty ? "\n" : ",\n") + "  \"" + key + "\": " + raw_value + "\n");
+  return valid_json_object(body);
+}
+
+static bool migrate_manifest_v1(std::string &manifest, const std::string &repo, bool &changed, std::string &error_message) {
+  changed = false;
+  if (!valid_json_object(manifest)) { error_message = "Manifesto editorial contém JSON inválido"; return false; }
+  std::string version = json_extract(manifest, "schema_version");
+  while (!version.empty() && std::isspace(static_cast<unsigned char>(version.back()))) version.pop_back();
+  if (!version.empty() && version != "1") { error_message = "Versão de manifesto não suportada: " + version; return false; }
+  auto add = [&](const std::string &key, const std::string &value) {
+    if (manifest.find("\"" + key + "\":") != std::string::npos) return true;
+    changed = true;
+    return json_add_raw_field(manifest, key, value);
+  };
+  if (!add("$schema", json("https://sister-git.labeco.org/schemas/editorial-v1.json")) ||
+      !add("schema_version", "1") || !add("project_type", json("editorial")) ||
+      !add("title", json(repo)) || !add("document_main", json("manuscrito.md")) ||
+      !add("current_stage", json("draft")) || !add("reviews", "[]") ||
+      !add("responses", "[]") || !add("decisions", "[]") ||
+      !add("transitions", "[]") || !add("editions", "[]")) {
+    error_message = "Falha ao normalizar manifesto editorial v1";
+    return false;
+  }
+  return valid_json_object(manifest);
+}
+
 // ============================================================================
 // AUTHENTICATION & SQLITE ENGINE
 // ============================================================================
@@ -883,6 +917,7 @@ static Response create_repo(const std::string &name, const std::string &type, co
 
     std::string init_manifest = "{\n"
                                 "  \"$schema\": \"https://sister-git.labeco.org/schemas/editorial-v1.json\",\n"
+                                "  \"schema_version\": 1,\n"
                                 "  \"project_type\": \"editorial\",\n"
                                 "  \"title\": " + json(doc_title) + ",\n"
                                 "  \"document_main\": \"manuscrito.md\",\n"
@@ -890,7 +925,10 @@ static Response create_repo(const std::string &name, const std::string &type, co
                                 "  \"authors\": [{\"name\": " + json(auth_name) + ", \"affiliation\": \"LABECO\"}],\n"
                                 "  \"current_stage\": \"draft\",\n"
                                 "  \"reviews\": [],\n"
-                                "  \"decisions\": []\n"
+                                "  \"responses\": [],\n"
+                                "  \"decisions\": [],\n"
+                                "  \"transitions\": [],\n"
+                                "  \"editions\": []\n"
                                 "}\n";
 
     git_commit_file(name, "manuscrito.md", init_doc, "docs(editorial): initial manuscript draft", auth_name, auth_email);
@@ -1107,7 +1145,8 @@ static Response editorial(const std::string &name, const AuthUser &user) {
   if (!user.authenticated) {
     return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"published_commit\":" + json(head_sha) + ",\"is_editorial\":true,\"manifest\":" + manifest_json + ",\"tags\":" + tags_json + "}"};
   }
-  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"head\":" + json(head_sha) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
+  bool migration_required = manifest_valid && json_extract(manifest_raw, "schema_version") != "1";
+  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"head\":" + json(head_sha) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"migration_required\":" + (migration_required ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
 }
 
 static Response archive(const std::string &name, const std::map<std::string, std::string> &q) {
@@ -1502,6 +1541,22 @@ static Response route_post(const std::string &target, const std::string &headers
         run({"git", "--git-dir=" + git_dir(name), "config", "sister.owner", user.email});
       }
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"name\":" + json(name) + ",\"visibility\":" + json(vis) + "}"};
+    }
+
+    if (action == "editorial/migrate") {
+      auto current = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
+      if (current.status != 0) return error(409, "Manifesto editorial ausente");
+      std::string manifest = current.out, migration_error;
+      bool changed = false;
+      if (!migrate_manifest_v1(manifest, name, changed, migration_error)) return error(409, migration_error);
+      auto head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
+      std::string head_sha = head.out;
+      while (!head_sha.empty() && std::isspace(static_cast<unsigned char>(head_sha.back()))) head_sha.pop_back();
+      if (!changed) return {200, "application/json; charset=utf-8", "{\"ok\":true,\"migrated\":false,\"schema_version\":1,\"commit\":" + json(head_sha) + "}"};
+      std::string expected_head = json_extract(body, "expected_head");
+      auto migrated = git_commit_file(name, ".sister-editorial.json", manifest, "chore(editorial): migrate manifest to schema v1", user.name, user.email, true, expected_head);
+      if (migrated.status != 0) return error(migrated.status == 409 ? 409 : 500, migrated.out);
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"migrated\":true,\"schema_version\":1,\"commit\":" + json(migrated.out) + "}"};
     }
 
     if (action == "editorial/save") {
