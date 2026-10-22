@@ -1428,6 +1428,7 @@ static Response route_post(const std::string &target, const std::string &, const
       if (author.empty()) author = json_extract(body, "author_name");
       if (author.empty()) author = user.name.empty() ? "Pesquisador LABECO" : user.name;
       if (filename.empty()) filename = "manuscrito.md";
+      if (filename == ".sister-editorial.json") return error(403, "Manifesto editorial só pode ser alterado por operações editoriais controladas");
       if (message.empty()) message = "docs(editorial): update manuscript version";
 
       std::string author_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
@@ -1478,6 +1479,8 @@ static Response route_post(const std::string &target, const std::string &, const
       if ((next == "in_review" || next == "accepted" || next == "rejected" || next == "revision_required") && !admin) {
         return error(403, "Transição reservada ao administrador editorial");
       }
+      bool is_decision = next == "accepted" || next == "rejected" || next == "revision_required";
+      if (is_decision && reason_text.empty()) return error(400, "Decisão editorial exige justificativa");
       std::string manifest = cur_man.out;
       if (!json_replace_string(manifest, "current_stage", next)) return error(409, "Campo current_stage ausente ou inválido");
       auto head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
@@ -1485,6 +1488,10 @@ static Response route_post(const std::string &target, const std::string &, const
       while (!source_commit.empty() && std::isspace(static_cast<unsigned char>(source_commit.back()))) source_commit.pop_back();
       std::string event = "{\"from\":" + json(current) + ",\"to\":" + json(next) + ",\"actor\":" + json(user.email) + ",\"date\":" + json(iso_now()) + ",\"reason\":" + json(reason_text) + ",\"source_commit\":" + json(source_commit) + "}";
       if (!json_append_object(manifest, "transitions", event)) return error(409, "Falha ao registrar histórico de transição");
+      if (is_decision) {
+        std::string decision = "{\"outcome\":" + json(next) + ",\"editor\":" + json(user.email) + ",\"date\":" + json(iso_now()) + ",\"justification\":" + json(reason_text) + ",\"source_commit\":" + json(source_commit) + "}";
+        if (!json_append_object(manifest, "decisions", decision)) return error(409, "Falha ao registrar decisão editorial formal");
+      }
       auto changed = git_commit_file(name, ".sister-editorial.json", manifest, "editorial: transition " + current + " -> " + next, user.name, user.email);
       if (changed.status != 0) return error(changed.status == 409 ? 409 : 500, changed.out);
       std::string submission_ref;
@@ -1610,6 +1617,9 @@ static Response route_post(const std::string &target, const std::string &, const
         return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"recovered\":true,\"tag\":" + json(tag) + ",\"commit\":" + json(commit) + "}"};
       }
       if (current_stage != "accepted") return error(409, "Publicação exige estado editorial accepted");
+      if (man_text.find("\"outcome\":\"accepted\"") == std::string::npos && man_text.find("\"outcome\": \"accepted\"") == std::string::npos) {
+        return error(409, "Publicação exige decisão editorial formal de aceite");
+      }
       if (!json_replace_string(man_text, "current_stage", "published")) return error(409, "Campo current_stage ausente ou inválido");
       auto accepted_head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
       std::string source_commit = accepted_head.out;
@@ -1643,6 +1653,7 @@ static Response route_post(const std::string &target, const std::string &, const
       if (commit_msg.empty()) commit_msg = json_extract(body, "message");
       std::string is_main = json_extract(body, "is_main");
       if (filename.empty() || !valid_path(filename)) return error(400, "Nome de arquivo inválido");
+      if (filename == ".sister-editorial.json") return error(403, "Manifesto editorial só pode ser alterado por operações editoriais controladas");
       if (commit_msg.empty()) commit_msg = "Upload de arquivo: " + filename;
 
       std::string content;

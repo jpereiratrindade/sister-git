@@ -136,6 +136,13 @@ grep -q '"description":"Artigo sobre ecologia"' "$TMP/repos_metadata.json"
 grep -q '"current_stage":"draft"' "$TMP/repos_metadata.json"
 grep -q '"editorial_tags":0' "$TMP/repos_metadata.json"
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"filename":".sister-editorial.json","content":"{\"current_stage\":\"accepted\"}","message":"bypass"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/save")" == 403 ]]
+MANIFEST_B64="$(printf '{\"current_stage\":\"accepted\"}' | base64 -w0)"
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d "{\"filename\":\".sister-editorial.json\",\"content_base64\":\"$MANIFEST_B64\",\"commit_msg\":\"bypass\"}" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload")" == 403 ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"to":"accepted","reason":"salto proibido"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition")" == 409 ]]
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
@@ -189,9 +196,14 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/visibility" >/dev/null
 
 # 5. Publicar edição documental (cria tag ed/v1.0-publicado)
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"to":"accepted","reason":""}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition")" == 400 ]]
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"to":"accepted","reason":"Parecer favorável homologado"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition" | grep -q '"to":"accepted"'
+git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | grep -q '"outcome":"accepted"'
+git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | grep -q '"justification":"Parecer favorável homologado"'
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"tag_name":"ed/v1.0-publicado","notes":"Publicação da primeira edição com DOI e W3C PROV","publisher_name":"SisTer Editorial","publisher_email":"editorial@labeco.invalid"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish" > "$TMP/pub_ed.json"
