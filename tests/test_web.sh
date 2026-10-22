@@ -123,6 +123,11 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/create_ed.json"
 grep -q '"ok":true' "$TMP/create_ed.json"
 grep -q '"type":"editorial"' "$TMP/create_ed.json"
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/repos_metadata.json"
+grep -q '"title":"Ecologia dos Campos"' "$TMP/repos_metadata.json"
+grep -q '"description":"Artigo sobre ecologia"' "$TMP/repos_metadata.json"
+grep -q '"current_stage":"draft"' "$TMP/repos_metadata.json"
+grep -q '"editorial_tags":0' "$TMP/repos_metadata.json"
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"to":"accepted","reason":"salto proibido"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition")" == 409 ]]

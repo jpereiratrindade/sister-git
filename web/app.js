@@ -376,8 +376,8 @@ async function renderHomePage() {
 
   const editorials = allReposCache.filter(r => r.type === 'editorial');
   const software = allReposCache.filter(r => r.type !== 'editorial');
-  const published = editorials.reduce((acc, r) => acc + (r.tags || 0), 0);
-  const activeNodes = (ha.nodes || []).filter(n => n.status === 'active').length || 2;
+  const published = editorials.reduce((acc, r) => acc + (r.editorial_tags || 0), 0);
+  const activeNodes = (ha.nodes || []).filter(n => n.status === 'active').length;
 
   const recent = allReposCache.slice(0, 6);
 
@@ -430,7 +430,7 @@ async function renderHomePage() {
           </a>
           <a href="#/infra" class="home-btn-secondary">
             <span>⚡ Alta Disponibilidade</span>
-            <span style="font-size: 0.75rem; color:#55efc4;">Sincronizado</span>
+            <span style="font-size: 0.75rem; color:#facc15;">${ha.replication === 'synchronized' ? 'Sincronizado' : 'Não verificado'}</span>
           </a>
           <button type="button" class="home-btn-secondary" style="cursor:pointer;" onclick="openNewProjectModal()">
             <span>+ Novo Projeto</span>
@@ -526,7 +526,7 @@ async function renderHomePage() {
               <span class="pillar-badge badge-green">Nós Gêmeos (HA)</span>
               <h3 class="pillar-title">Resiliência Operacional</h3>
               <p class="pillar-desc">
-                Arquitetura sem ponto único de falha. Sincronização contínua com verificação criptográfica entre o servidor central do laboratório (<code>labeco-srv</code>) e nós réplica de backup em tempo real.
+                Infraestrutura preparada para redundância entre o servidor central (<code>labeco-srv</code>) e nós réplica. O estado só é exibido como sincronizado após verificação operacional.
               </p>
             </div>
             <a href="#/infra" class="pillar-link">Ver Topologia de Alta Disponibilidade →</a>
@@ -548,14 +548,14 @@ async function renderHomePage() {
           <div class="grid-repo">
             ${recent.map(r => {
               const isEd = r.type === 'editorial';
-              const link = isEd ? `#/editorial/${encodeURIComponent(r.name)}/editor` : `#/r/${encodeURIComponent(r.name)}/code`;
+              const link = isEd ? `#/editorial/${encodeURIComponent(r.name)}/manuscript` : `#/r/${encodeURIComponent(r.name)}/code`;
               const visLabel = r.visibility === 'private' ? '🔒 Privado' : '🌐 Público';
               const visClass = r.visibility === 'private' ? 'badge-private' : 'badge-public';
               return `
                 <article class="repo-card" data-search="${esc(r.name)} ${esc(r.visibility || '')}">
                   <div class="repo-card-head">
                     <span class="repo-name" title="${esc(r.name)}">
-                      <a href="${link}">${esc(r.name)}</a>
+                      <a href="${link}">${esc((isEd && r.title) || r.name)}</a>
                     </span>
                     <div style="display: flex; gap: 6px; align-items: center;">
                       <span class="badge ${visClass}">${visLabel}</span>
@@ -565,7 +565,7 @@ async function renderHomePage() {
                   <p class="repo-desc">${esc(r.description || (isEd ? 'Projeto editorial científico sob governança Git.' : 'Repositório de software sob controle de versão Git.'))}</p>
                   <div class="repo-meta">
                     <span>${r.branches || 1} ramo(s)</span>
-                    <span>${r.tags || 0} edição/tag(s)</span>
+                    <span>${isEd ? (r.editorial_tags || 0) : (r.tags || 0)} edição/tag(s)</span>
                     <a href="${link}" style="margin-left: auto; font-weight: 700;">Abrir →</a>
                   </div>
                 </article>
@@ -601,8 +601,8 @@ async function renderEditorialDashboard() {
 
   const editorials = allReposCache.filter(r => r.type === 'editorial');
   const software = allReposCache.filter(r => r.type !== 'editorial');
-  const drafts = editorials.filter(r => r.empty || !r.tags).length;
-  const published = editorials.reduce((acc, r) => acc + (r.tags || 0), 0);
+  const drafts = editorials.filter(r => r.current_stage === 'draft').length;
+  const published = editorials.reduce((acc, r) => acc + (r.editorial_tags || 0), 0);
 
   app.innerHTML = `
     <header class="hero-editorial">
@@ -678,19 +678,20 @@ function renderEditorialCard(r) {
     ? `<span class="badge-vis vis-private">🔒 Privado</span>`
     : `<span class="badge-vis vis-public">🌐 Público</span>`;
 
-  const tagBadge = r.tags > 0
-    ? `<span class="badge-edition-tag">ed/${r.tags} edições</span>`
-    : `<span class="badge-stage stage-draft">Rascunho Ativo</span>`;
+  const cardStageLabels = { draft: 'Rascunho', submitted: 'Submetido', in_review: 'Em revisão', revision_required: 'Revisões requeridas', resubmitted: 'Ressubmetido', accepted: 'Aceito', rejected: 'Rejeitado', withdrawn: 'Retirado', published: 'Publicado' };
+  const tagBadge = r.editorial_tags > 0
+    ? `<span class="badge-edition-tag">${r.editorial_tags} edição(ões)</span>`
+    : `<span class="badge-stage stage-draft">${esc(cardStageLabels[r.current_stage] || 'Rascunho')}</span>`;
 
   const lastCommitInfo = r.last_commit
     ? `Versão salva ${timeAgo(r.last_commit.date)} por <strong>${esc(r.last_commit.author)}</strong>`
     : 'Aguardando primeiro manuscrito';
 
   return `
-    <article class="article-card" data-search="${esc((r.name + ' ' + (r.last_commit?.subject || '')).toLowerCase())}">
+    <article class="article-card" data-search="${esc((r.name + ' ' + (r.title || '') + ' ' + (r.last_commit?.subject || '')).toLowerCase())}">
       <div class="article-card-head">
         <a href="#/editorial/${encodeURIComponent(r.name)}" class="article-title-link">
-          ${esc(r.name)}
+          ${esc(r.title || r.name)}
         </a>
         <div class="badges-row">
           ${visBadge(r.visibility)}
@@ -1154,6 +1155,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   }
   const reviews = manifest.reviews || [];
   const responses = manifest.responses || [];
+  const canWrite = currentUser && (currentUser.role === 'admin' || edData.project_role === 'owner' || edData.project_role === 'editor');
 
   // Detect main document
   let mainDoc = manifest.document_main;
@@ -1256,7 +1258,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
           </div>
         </div>
 
-        <form id="formUploadDoc" onsubmit="handleUploadDocument(event, '${esc(repo)}')" style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:28px; box-shadow:var(--shadow-sm);">
+        ${!canWrite ? '<div class="notice-box"><strong>Modo somente leitura</strong><p>Upload disponível apenas ao autor responsável ou editor.</p></div>' : ''}
+        <form id="formUploadDoc" onsubmit="handleUploadDocument(event, '${esc(repo)}')" style="${canWrite ? '' : 'display:none;'} background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:28px; box-shadow:var(--shadow-sm);">
           <div class="upload-dropzone" onclick="document.querySelector('#uploadFileInput').click()" ondragover="event.preventDefault()" ondrop="handleDropFile(event)">
             <span class="upload-dropzone-icon">📥</span>
             <strong style="color:var(--navy); font-size:1rem; display:block;">Clique ou arraste o arquivo aqui para enviar</strong>
@@ -1345,7 +1348,14 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
     const localDraft = localStorage.getItem('sister_draft_' + repo);
     const textToShow = (localDraft && localDraft.trim().length > 0) ? localDraft : rawMarkdown;
 
-    tabContent = `
+    tabContent = !isTextDoc ? `
+      <div class="empty-state" style="background:#fff; padding:40px; text-align:center;">
+        <h3>Editor rápido indisponível para ${esc(formatLabel(ext))}</h3>
+        <p>Baixe o arquivo original, edite no aplicativo nativo e envie nova versão pela aba Upload &amp; Arquivos.</p>
+      </div>
+    ` : !canWrite ? `
+      <div class="empty-state" style="background:#fff; padding:40px; text-align:center;"><h3>Modo somente leitura</h3><p>Editor disponível apenas ao autor responsável ou editor.</p></div>
+    ` : `
       <div class="split-editor-container">
         <div class="split-editor-grid">
           <div class="editor-pane">
@@ -1366,7 +1376,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
           </div>
         </div>
 
-        <form class="editor-commit-bar" onsubmit="handleSaveManuscript(event, '${esc(repo)}')">
+        <form class="editor-commit-bar" onsubmit="handleSaveManuscript(event, '${esc(repo)}', '${esc(mainDoc)}')">
           <div class="commit-input-group">
             <label style="font-weight:700; font-size:0.8rem; color:var(--navy);">Autor:</label>
             <input type="text" id="commitAuthor" required value="${esc(authors.split(',')[0].trim())}" placeholder="Nome do autor">
@@ -1528,8 +1538,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
     </div>
   `;
 
-  if (tab === 'editor') {
-    handleEditorInput(rawMarkdown);
+  if (tab === 'editor' && isTextDoc && canWrite) {
+    handleEditorInput(document.querySelector('#liveEditorTextarea')?.value || '');
   }
 }
 
@@ -1562,7 +1572,7 @@ window.handleEditorialTransition = async function(repo, nextStage) {
   }
 };
 
-window.handleSaveManuscript = async function(e, repo) {
+window.handleSaveManuscript = async function(e, repo, filename) {
   e.preventDefault();
   const textarea = document.querySelector('#liveEditorTextarea');
   const author = document.querySelector('#commitAuthor')?.value.trim();
@@ -1577,7 +1587,7 @@ window.handleSaveManuscript = async function(e, repo) {
 
   try {
     const res = await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/save`, {
-      filename: 'manuscrito.md',
+      filename,
       content,
       author: author || 'Pesquisador LABECO',
       message: message || 'Atualização editorial do manuscrito'
@@ -2045,6 +2055,8 @@ window.openNewProjectModal = function(defaultType = 'editorial') {
 window.toggleProjectFields = function(type) {
   const f = document.querySelector('#editorialSpecificFields');
   if (f) f.style.display = type === 'editorial' ? 'block' : 'none';
+  const visibility = document.querySelector('#newProjVisibility');
+  if (visibility) visibility.value = type === 'editorial' ? 'private' : 'public';
 };
 
 window.handleCreateProject = async function(e) {

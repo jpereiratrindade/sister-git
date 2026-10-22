@@ -349,7 +349,7 @@ static bool can_write_repo(const std::string &name, const AuthUser &user) {
   if (!user.authenticated) return false;
   if (user.role == "admin") return true;
   std::string owner = repo_owner(name);
-  return !owner.empty() && owner == user.email;
+  return (!owner.empty() && owner == user.email) || project_member_role(name, user.email) == "editor";
 }
 
 static bool valid_revision(const std::string &rev) {
@@ -812,7 +812,7 @@ static Result git_commit_file(const std::string &name, const std::string &filena
   return git_commit_files(name, {{filename, content, normalize_text}}, commit_msg, author_name, author_email);
 }
 
-static Response create_repo(const std::string &name, const std::string &type, const std::string &visibility, const std::string &title, const std::string &author, const AuthUser &user) {
+static Response create_repo(const std::string &name, const std::string &type, const std::string &visibility, const std::string &title, const std::string &description, const std::string &author, const AuthUser &user) {
   if (name.empty() || name.find('/') != std::string::npos || name.find("..") != std::string::npos) {
     return error(400, "Nome de repositório inválido");
   }
@@ -847,7 +847,7 @@ static Response create_repo(const std::string &name, const std::string &type, co
                                 "  \"project_type\": \"editorial\",\n"
                                 "  \"title\": " + json(doc_title) + ",\n"
                                 "  \"document_main\": \"manuscrito.md\",\n"
-                                "  \"abstract\": \"Projeto documental sob governança editorial e proveniência Git.\",\n"
+                                "  \"abstract\": " + json(description.empty() ? "Projeto documental sob governança editorial e proveniência Git." : description) + ",\n"
                                 "  \"authors\": [{\"name\": " + json(auth_name) + ", \"affiliation\": \"LABECO\"}],\n"
                                 "  \"current_stage\": \"draft\",\n"
                                 "  \"reviews\": [],\n"
@@ -879,10 +879,10 @@ static Response repos(const AuthUser &user) {
     std::string owner = repo_owner(name);
     auto head = run({"git", "--git-dir=" + git_dir(name), "symbolic-ref", "--short", "HEAD"});
     auto counts = run({"git", "--git-dir=" + git_dir(name), "for-each-ref", "--format=%(refname)", "refs/heads", "refs/tags"});
-    int branches = 0, tags = 0;
+    int branches = 0, tags = 0, editorial_tags = 0;
     for (auto &x : lines(counts.out)) {
       if (x.rfind("refs/heads/", 0) == 0) branches++;
-      else if (x.rfind("refs/tags/", 0) == 0) tags++;
+      else if (x.rfind("refs/tags/", 0) == 0) { tags++; if (x.rfind("refs/tags/ed/", 0) == 0) editorial_tags++; }
     }
     auto last = run({"git", "--git-dir=" + git_dir(name), "log", "-1", "--format=%H%x1f%h%x1f%s%x1f%an%x1f%aI"});
     auto f = lines(last.out);
@@ -893,7 +893,16 @@ static Response repos(const AuthUser &user) {
     }
     if (!first) body += ',';
     first = false;
-    body += "{\"name\":" + json(name) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"type\":" + json(type) + ",\"default_branch\":" + json(head.status == 0 ? head.out.substr(0, head.out.find('\n')) : "") + ",\"branches\":" + std::to_string(branches) + ",\"tags\":" + std::to_string(tags) + ",\"size_bytes\":" + std::to_string(bytes) + ",\"integrity\":\"not_checked\"";
+    std::string editorial_title, editorial_stage, editorial_abstract;
+    if (type == "editorial") {
+      auto manifest = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
+      if (manifest.status == 0 && valid_json_object(manifest.out)) {
+        editorial_title = json_extract(manifest.out, "title");
+        editorial_stage = json_extract(manifest.out, "current_stage");
+        editorial_abstract = json_extract(manifest.out, "abstract");
+      }
+    }
+    body += "{\"name\":" + json(name) + ",\"title\":" + json(editorial_title) + ",\"description\":" + json(editorial_abstract) + ",\"current_stage\":" + json(editorial_stage) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"type\":" + json(type) + ",\"default_branch\":" + json(head.status == 0 ? head.out.substr(0, head.out.find('\n')) : "") + ",\"branches\":" + std::to_string(branches) + ",\"tags\":" + std::to_string(tags) + ",\"editorial_tags\":" + std::to_string(editorial_tags) + ",\"size_bytes\":" + std::to_string(bytes) + ",\"integrity\":\"not_checked\"";
     if (log.empty()) body += ",\"empty\":true,\"last_commit\":null}";
     else {
       auto p = std::vector<std::string>{}; size_t b = 0, a;
@@ -1139,7 +1148,7 @@ static Response route(const std::string &target, const AuthUser &user) {
   }
 
   if (path == "/api/v1/ha") {
-    return {200, "application/json; charset=utf-8", "{\"nodes\":[{\"name\":\"LABECO-SRV\",\"role\":\"git-host\",\"status\":\"active\"},{\"name\":\"Fedora Silverblue\",\"role\":\"replica-node\",\"status\":\"active\"}],\"replication\":\"synchronized\",\"last_sync\":" + json(iso_now()) + "}"};
+    return {200, "application/json; charset=utf-8", "{\"nodes\":[{\"name\":\"LABECO-SRV\",\"role\":\"git-host\",\"status\":\"active\"},{\"name\":\"Fedora Silverblue\",\"role\":\"replica-node\",\"status\":\"unknown\"}],\"replication\":\"unverified\",\"last_sync\":null}"};
   }
 
   if (path == "/api/v1/repos") {
@@ -1377,10 +1386,11 @@ static Response route_post(const std::string &target, const std::string &, const
     std::string type = json_extract(body, "type");
     std::string vis = json_extract(body, "visibility");
     std::string title = json_extract(body, "title");
+    std::string description = json_extract(body, "description");
     std::string author = json_extract(body, "author");
     if (type.empty()) type = "editorial";
     if (vis.empty()) vis = "public";
-    return create_repo(name, type, vis, title, author, user);
+    return create_repo(name, type, vis, title, description, author, user);
   }
 
   const std::string pre = "/api/v1/repos/";
