@@ -1967,8 +1967,8 @@ async function renderRepoCode(route) {
           <thead>
             <tr>
               <th>Nome</th>
-              <th>Tipo</th>
-              <th>SHA</th>
+              <th>Último commit</th>
+              <th style="text-align:right;">Atualizado</th>
             </tr>
           </thead>
           <tbody>
@@ -1990,8 +1990,13 @@ async function renderRepoCode(route) {
                     ${e.type === 'tree' ? '📁 ' : '📄 '} <strong>${esc(e.name)}</strong>
                   </a>
                 </td>
-                <td><span style="font-size:0.75rem; color:var(--muted);">${esc(e.type)}</span></td>
-                <td><code style="font-size:0.75rem; color:var(--muted);">${esc(e.hash.substr(0, 8))}</code></td>
+                <td title="${esc(e.last_commit?.subject || '')}">
+                  <span style="font-size:0.8rem; color:var(--text);">${esc(e.last_commit?.subject || 'Sem histórico')}</span>
+                  ${e.last_commit?.short_hash ? `<code style="font-size:0.7rem; color:var(--muted); margin-left:6px;">${esc(e.last_commit.short_hash)}</code>` : ''}
+                </td>
+                <td style="text-align:right; white-space:nowrap; font-size:0.78rem; color:var(--muted);" title="${esc(formatDate(e.last_commit?.date))}">
+                  ${timeAgo(e.last_commit?.date)}
+                </td>
               </tr>
             `).join('')}
           </tbody>

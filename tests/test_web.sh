@@ -23,7 +23,10 @@ for _ in {1..50}; do curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null
 curl -fsS "http://127.0.0.1:$PORT/" > "$TMP/index.html" && grep -q 'SisTer Git' "$TMP/index.html"
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos" > "$TMP/repos.json"
 grep -q '"name":"MORFO"' "$TMP/repos.json"; grep -q '"name":"empty"' "$TMP/repos.json"
-curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/tree?ref=main" | grep -q '"name":"src"'
+curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/tree?ref=main" > "$TMP/tree-with-commits.json"
+grep -q '"name":"src"' "$TMP/tree-with-commits.json"
+grep -q '"subject":"Evolui código"' "$TMP/tree-with-commits.json"
+grep -Eq '"date":"[0-9]{4}-[0-9]{2}-[0-9]{2}T' "$TMP/tree-with-commits.json"
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/tree?ref=main&path=src" | grep -q 'main.cpp'
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/blob?ref=main&path=README.md" | grep -q 'Interface de teste'
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/blob?ref=main&path=image.bin" | grep -q '"binary":true'

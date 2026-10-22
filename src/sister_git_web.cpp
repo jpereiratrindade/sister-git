@@ -1035,9 +1035,22 @@ static Response tree(const std::string &name, const std::map<std::string, std::s
     std::string x = r.out.substr(p, z - p);
     size_t sp = x.find(' '), sp2 = x.find(' ', sp + 1), tab = x.find('\t', sp2 + 1);
     if (tab != std::string::npos) {
+      std::string entry_name = x.substr(tab + 1);
+      std::string entry_path = path.empty() ? entry_name : path + "/" + entry_name;
+      auto last = run({"git", "--git-dir=" + git_dir(name), "log", "-1", "--format=%h%x1f%s%x1f%aI", ref + "^{commit}", "--", entry_path});
+      std::string short_hash, subject, date;
+      if (last.status == 0) {
+        while (!last.out.empty() && std::isspace(static_cast<unsigned char>(last.out.back()))) last.out.pop_back();
+        size_t a = last.out.find('\x1f'), c = a == std::string::npos ? std::string::npos : last.out.find('\x1f', a + 1);
+        if (a != std::string::npos && c != std::string::npos) {
+          short_hash = last.out.substr(0, a);
+          subject = last.out.substr(a + 1, c - a - 1);
+          date = last.out.substr(c + 1);
+        }
+      }
       if (!first) b += ',';
       first = false;
-      b += "{\"mode\":" + json(x.substr(0, sp)) + ",\"type\":" + json(x.substr(sp + 1, sp2 - sp - 1)) + ",\"hash\":" + json(x.substr(sp2 + 1, tab - sp2 - 1)) + ",\"name\":" + json(x.substr(tab + 1)) + "}";
+      b += "{\"mode\":" + json(x.substr(0, sp)) + ",\"type\":" + json(x.substr(sp + 1, sp2 - sp - 1)) + ",\"hash\":" + json(x.substr(sp2 + 1, tab - sp2 - 1)) + ",\"name\":" + json(entry_name) + ",\"last_commit\":{\"short_hash\":" + json(short_hash) + ",\"subject\":" + json(subject) + ",\"date\":" + json(date) + "}}";
     }
     p = z + 1;
   }
