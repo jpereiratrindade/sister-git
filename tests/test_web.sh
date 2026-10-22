@@ -165,6 +165,7 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" -d '{"visibility":"private"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/visibility" >/dev/null
 curl -fsS -H "Authorization: Bearer $COLEGA_TOKEN" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q '"project_role":"reviewer"'
+[[ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial?token=test-token-123")" == 404 ]]
 curl -fsS -H "Authorization: Bearer $COLEGA_TOKEN" -H "Content-Type: application/json" \
   -d '{"reviewer":"Identidade Falsa","recommendation":"accept_with_revisions","comments":"Artigo excelente, favor detalhar a seção 3."}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/review" > "$TMP/review_ed.json"

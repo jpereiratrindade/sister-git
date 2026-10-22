@@ -665,7 +665,7 @@ static bool send_otp_email(const std::string &to, const std::string &code, std::
   return true;
 }
 
-static AuthUser authenticate_request(const std::string &headers, const std::string &target = "") {
+static AuthUser authenticate_request(const std::string &headers, const std::string & = "") {
   std::string token;
   std::string exp = "Authorization: Bearer ";
   size_t pos = headers.find(exp);
@@ -693,16 +693,6 @@ static AuthUser authenticate_request(const std::string &headers, const std::stri
         token = cstr.substr(vstart, (vend == std::string::npos ? cstr.size() : vend) - vstart);
         while (!token.empty() && token.back() == ' ') token.pop_back();
       }
-    }
-  }
-
-  // Fallback 2: Query param (?token=... ou &token=...)
-  if (token.empty() && !target.empty()) {
-    size_t qm = target.find('?');
-    if (qm != std::string::npos) {
-      std::string qs = target.substr(qm + 1);
-      auto q = query(qs);
-      if (q.count("token")) token = q.at("token");
     }
   }
 

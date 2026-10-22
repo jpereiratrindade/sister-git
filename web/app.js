@@ -26,10 +26,7 @@ const setToken = t => {
 
 window.downloadFile = async function(url, suggestedFilename) {
   const token = getToken();
-  let finalUrl = url;
-  if (token && !finalUrl.includes('token=')) {
-    finalUrl += (finalUrl.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
-  }
+  const finalUrl = url;
   showToast('⏳ Preparando download...');
   try {
     const headers = {};
@@ -2447,10 +2444,8 @@ window.openCloneModal = function(repo, ref) {
   if (title) title.textContent = `Clonar ou Baixar: ${repo}`;
   if (sshInput) sshInput.value = sshClone;
   if (remoteInput) remoteInput.value = gitRemote;
-  const tkn = getToken();
-  const authQ = tkn ? `&token=${encodeURIComponent(tkn)}` : '';
-  const zipUrl = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=zip${authQ}`;
-  const tarUrl = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=tar.gz${authQ}`;
+  const zipUrl = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=zip`;
+  const tarUrl = `/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ref || 'HEAD')}&format=tar.gz`;
   const zipName = `${repo}-${(ref || 'HEAD').replace(/\//g, '-')}.zip`;
   const tarName = `${repo}-${(ref || 'HEAD').replace(/\//g, '-')}.tar.gz`;
 
