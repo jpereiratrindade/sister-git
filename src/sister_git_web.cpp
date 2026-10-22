@@ -550,6 +550,7 @@ static void init_auth_db() {
     std::cerr << "[AUTH DDL ERROR] " << err << "\n";
     sqlite3_free(err);
   }
+  sqlite3_exec(g_db, "DELETE FROM sessions WHERE expires_at <= unixepoch(); DELETE FROM otps WHERE expires_at <= unixepoch();", nullptr, nullptr, nullptr);
 }
 
 static bool has_allowed_users() {
@@ -665,7 +666,7 @@ static bool send_otp_email(const std::string &to, const std::string &code, std::
   return true;
 }
 
-static AuthUser authenticate_request(const std::string &headers, const std::string & = "") {
+static std::string request_token(const std::string &headers) {
   std::string token;
   std::string exp = "Authorization: Bearer ";
   size_t pos = headers.find(exp);
@@ -696,6 +697,11 @@ static AuthUser authenticate_request(const std::string &headers, const std::stri
     }
   }
 
+  return token;
+}
+
+static AuthUser authenticate_request(const std::string &headers, const std::string & = "") {
+  std::string token = request_token(headers);
   // Master Token
   if (!auth_token.empty() && !token.empty() && token == auth_token) {
     return {true, "admin@labeco.invalid", "Administrador LABECO", "admin"};
@@ -1207,7 +1213,7 @@ static Response route(const std::string &target, const AuthUser &user) {
   return static_file(path);
 }
 
-static Response route_post(const std::string &target, const std::string &, const std::string &body, const AuthUser &user) {
+static Response route_post(const std::string &target, const std::string &headers, const std::string &body, const AuthUser &user) {
   // Public Auth Endpoints
   if (target == "/api/v1/auth/request-code") {
     std::string email = json_extract(body, "email");
@@ -1351,6 +1357,15 @@ static Response route_post(const std::string &target, const std::string &, const
   }
 
   if (target == "/api/v1/auth/logout") {
+    std::string token = request_token(headers);
+    if (!token.empty() && token != auth_token && g_db) {
+      sqlite3_stmt *stmt = nullptr;
+      if (sqlite3_prepare_v2(g_db, "DELETE FROM sessions WHERE token = ?", -1, &stmt, nullptr) != SQLITE_OK) return error(500, "Falha ao preparar revogação da sessão");
+      sqlite3_bind_text(stmt, 1, token.c_str(), -1, SQLITE_TRANSIENT);
+      bool revoked = sqlite3_step(stmt) == SQLITE_DONE;
+      sqlite3_finalize(stmt);
+      if (!revoked) return error(500, "Falha ao revogar sessão");
+    }
     return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\"}"};
   }
 

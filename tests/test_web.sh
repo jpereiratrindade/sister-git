@@ -328,6 +328,12 @@ for SAMPLE in amostra.odt amostra.pdf amostra.png amostra.bin; do
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/download-$SAMPLE" | cut -d' ' -f1)" ]]
 done
 
+# Logout revoga a sessão no backend; reutilização do token não autentica.
+curl -fsS -H "Authorization: Bearer $COLEGA_TOKEN" -H "Content-Type: application/json" -d '{}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/auth/logout" | grep -q '"ok":true'
+curl -fsS -H "Authorization: Bearer $COLEGA_TOKEN" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/auth/status" | grep -q '"authenticated":false'
+
 if SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" "$HERE/build/sister-git-web" --bind 0.0.0.0 --port $((PORT+1)) >"$TMP/public.log" 2>&1; then echo '[ERRO] bind público aceito sem token' >&2; exit 1; fi
 git --git-dir="$TMP/repos/MORFO.git" fsck --full >/dev/null
 git --git-dir="$TMP/repos/artigo-teste.git" fsck --full >/dev/null

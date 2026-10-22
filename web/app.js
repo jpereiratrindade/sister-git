@@ -132,9 +132,9 @@ async function updateAuthStatus() {
 }
 
 window.logout = async function() {
+  await apiPost('/api/v1/auth/logout', {}).catch(() => {});
   setToken('');
   currentUser = null;
-  await apiPost('/api/v1/auth/logout', {}).catch(() => {});
   closeModal('modalAuth');
   showToast('Sessão encerrada.');
   await updateAuthStatus();
