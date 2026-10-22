@@ -113,23 +113,32 @@ git --git-dir=/srv/git/SOFTWARE.git config sister.type software
 
 1. **Identidade Visual MORFO**: Sidebar profunda (`#071e38` a `#0c2844`), acentos em azul celeste (`#2ea8e8`) e verde-azulado (`#087f8c`), tipografia moderna (*Plus Jakarta Sans*, *Inter*, *JetBrains Mono*).
 2. **Espaço de Trabalho Dual**:
-   - **Espaço Editorial**: Dashboard dedicado, cards de artigos com badges de estágio (`draft`, `in_review`, `published`), leitor acadêmico, editor split com preview em tempo real e timeline de pareceres.
-   - **Espaço Repositórios**: Gestão de código-fonte, navegação na árvore de arquivos, histórico de commits, tags/branches e visualizador de diffs estilo GitHub.
-3. **Plumbing Git no Backend C++26**: Operações de escrita atômica em repositórios bare sem necessidade de working tree (usando `hash-object`, temporary `GIT_INDEX_FILE`, `write-tree`, `commit-tree` e `update-ref`).
-4. **Sem comandos Git no navegador**: O usuário realiza todo o ciclo editorial (escrever, salvar versões, emitir pareceres e publicar) pela interface web.
+   - **Espaço Editorial**: Dashboard dedicado, cards de manuscritos com badges de estágio (`draft`, `in_review`, `published`), leitor acadêmico, editor split com preview em tempo real e timeline de pareceres.
+   - **Espaço Repositórios**: Gestão de código-fonte, navegação na árvore de arquivos, histórico de commits, tags/branches e visualizador de diffs unificado.
+3. **Suporte Multiformato Real**:
+   - Upload e custódia segura de formatos nativos do cientista: **Word (`.docx`)**, **LibreOffice (`.odt`)**, **LaTeX (`.tex`)**, **Markdown (`.md`)**, **Texto puro (`.txt`)** e relatórios técnicos em **PDF**.
+   - Download raw dos artefatos originais preservando integridade binária.
+4. **Plumbing Git no Backend C++26**: Operações de escrita atômica em repositórios bare sem necessidade de working tree (usando `hash-object`, temporary `GIT_INDEX_FILE`, `write-tree`, `commit-tree` e `update-ref`).
+5. **Autenticação Passwordless Institucional**: Validação por código único temporário (OTP via SMTP institucional) enviado diretamente ao e-mail institucional do autor cadastrado em allowlist.
 
 ---
 
-## 6. Endpoints Interativos da API C++26
+## 6. Endpoints da API REST C++26
 
 | Método | Rota | Descrição |
 | :--- | :--- | :--- |
 | `POST` | `/api/v1/repos` | Inicializa repositório bare com manifesto e manuscrito modelo |
-| `POST` | `/api/v1/repos/{name}/editorial/save` | Salva nova versão de manuscrito criando commit no Git |
-| `POST` | `/api/v1/repos/{name}/editorial/review` | Registra parecer editorial em `.sister-editorial.json` |
+| `POST` | `/api/v1/repos/{name}/upload` | Upload de arquivo multiformato (Base64 até 64MB) com commit Git atômico |
+| `GET` | `/api/v1/repos/{name}/raw?ref=...&path=...` | Download binário do arquivo original em seu formato nativo |
+| `POST` | `/api/v1/repos/{name}/editorial/save` | Salva nova versão textual de manuscrito criando commit no Git |
+| `POST` | `/api/v1/repos/{name}/editorial/review` | Registra parecer editorial formal em `.sister-editorial.json` |
 | `POST` | `/api/v1/repos/{name}/editorial/publish` | Cria tag anotada imutável `ed/*` e avança estágio para `published` |
 | `GET` | `/api/v1/repos/{name}/editorial` | Retorna metadados editoriais, manifesto, pareceres e tags |
+| `POST` | `/api/v1/auth/request-code` | Dispara envio de código OTP temporário para o e-mail institucional |
+| `POST` | `/api/v1/auth/verify-code` | Valida código OTP e estabelece sessão autenticada |
+| `GET` | `/api/v1/auth/me` | Retorna estado de autenticação e papel do usuário logado |
 
 ---
 
 *Sempre pronto. Sempre incompleto!*
+

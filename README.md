@@ -1,17 +1,28 @@
 # SisTer Git — somente repositórios Git
 
-**Versão:** 0.3.0 · **Princípio:** Sempre pronto. Sempre incompleto.
+**Versão:** 0.4.0 · **Princípio:** Sempre pronto. Sempre incompleto.
 
-Um serviço mínimo de hospedagem de repositórios do ecossistema SisTer: **Git bare + SSH existente**. Não instala Gitea, GitLab, banco de dados, OAuth ou daemon Git. A etapa 2 acrescenta **redundância por Git nativo**. A etapa 3 acrescenta **execução simétrica em dois nós**, com fallback por comando e sincronização fast-forward. A etapa web acrescenta uma interface própria de consulta, sem substituir o Git/SSH nem modificar repositórios.
+Um serviço soberano e mínimo de hospedagem de repositórios do ecossistema SisTer: **Git bare + SSH existente + Módulo Editorial C++26**. Não requer Gitea, GitLab, servidores pesados, OAuth externo ou bancos de dados complexos. 
 
-## Interface web (primeira entrega)
+- **Etapa 1 — Núcleo Git Bare**: Gestão rigorosa em `/srv/git` com permissões restritas e políticas anti-corrupção.
+- **Etapa 2 — Redundância Nativa**: Sincronização atômica (`fetch`/`push --atomic`) e bundles offline verificados com SHA-256.
+- **Etapa 3 — Alta Disponibilidade (Dois Nós)**: Operação simétrica cliente-servidor com fallback via `sister-git-ha`.
+- **Etapa 4 — SisTer Git Web & Editorial (C++26)**: Dashboard, navegação na árvore de código, visualização de commits e diffs unificados, ciclo de vida editorial em 5 estágios, upload multiformato (Word `.docx`, LibreOffice `.odt`, LaTeX `.tex`, `.md`, `.txt`, `.pdf`), download raw de artefatos, autenticação institucional por código de uso único (OTP via e-mail) e operação contínua como serviço `systemd`.
 
-O SisTer Git Web oferece dashboard, navegação de código, commits, branches, tags e comparação entre revisões. Backend C++17 sem dependências externas; API versionada e somente leitura. Veja **[docs/SISTER-GIT-WEB.md](docs/SISTER-GIT-WEB.md)**.
+## Interface Web & Editorial
+
+A interface do **SisTer Git Web** combina visualização completa de repositórios com governança documental e proveniência científica. Backend de alta performance escrito em **C++26** e frontend com design moderno (**MORFO** em Vanilla JS/CSS puro). Veja detalhes completos em **[docs/SISTER-GIT-WEB.md](docs/SISTER-GIT-WEB.md)** e **[docs/GOVERNANCA-EDITORIAL-SISTER-GIT.md](docs/GOVERNANCA-EDITORIAL-SISTER-GIT.md)**.
 
 ```bash
+# Compilar e rodar testes locais
 make
-SISTER_GIT_ROOT=/srv/git SISTER_GIT_WEB_ROOT="$PWD/web" ./build/sister-git-web
+make test
+
+# Execução local em modo de desenvolvimento
+SISTER_GIT_ROOT=/srv/git SISTER_GIT_WEB_ROOT="$PWD/web" ./build/sister-git-web --bind 127.0.0.1 --port 8787
 ```
+
+Para implantação em produção no servidor (`labeco-srv`), consulte a seção [Operação em Produção com systemd](docs/SISTER-GIT-WEB.md#3-operação-em-produção-com-systemd) e os modelos em [`deploy/systemd/`](deploy/systemd/).
 
 ## Instalar
 

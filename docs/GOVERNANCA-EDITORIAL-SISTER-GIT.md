@@ -137,11 +137,13 @@ Para que a proveniência não dependa de bancos de dados externos e viaje junto 
 ## 6. Soberania e Resiliência na Infraestrutura do LABECO
 
 1. **Repositórios Bare Centrais**: Armazenados em `/srv/git/` no servidor institucional `labeco-srv` (IP `10.163.80.129`).
-2. **Sincronização Bidirecional & Alta Disponibilidade (HA)**: Replicação criptográfica contínua entre o servidor central e os nós clientes autorizados, prevenindo perdas mesmo em falhas de hardware.
-3. **Autenticação Passwordless Institucional**: Validação de pesquisadores via código de uso único (OTP) enviado exclusivamente para e-mails institucionais `@embrapa.br`, com controle de acesso em lista restrita gerenciada pelo administrador.
-4. **Exportação e Download**: O pesquisador pode a qualquer momento baixar o repositório completo via Git Clone (`SSH`), ou baixar um arquivo `.zip`/`.tar.gz` completo, ou baixar arquivos individuais (`.docx`, `.odt`, `.tex`) com um único clique.
+2. **Daemon Autônomo de Produção (`systemd`)**: O serviço `sister-git-web.service` opera como daemon independente de sessões de usuário, com reinicialização automática (`Restart=always`), escutando em `http://10.163.80.129:8787` e protegido por arquivo restrito de variáveis (`/etc/sister-git-web.env`, `0600`).
+3. **Sincronização Bidirecional & Alta Disponibilidade (HA)**: Replicação criptográfica contínua entre o servidor central e os nós clientes autorizados, prevenindo perdas mesmo em falhas de hardware.
+4. **Autenticação Passwordless Institucional**: Validação de pesquisadores via código de uso único (OTP) enviado exclusivamente para e-mails institucionais `@embrapa.br`, com controle de acesso em lista restrita gerenciada pelo administrador.
+5. **Exportação e Download**: O pesquisador pode a qualquer momento baixar o repositório completo via Git Clone (`SSH`), ou baixar um arquivo `.zip`/`.tar.gz` completo, ou baixar arquivos individuais (`.docx`, `.odt`, `.tex`) com um único clique.
 
 ---
 
 *Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)*  
 *Embrapa Pecuária Sul · SisTer Git Editorial*
+
