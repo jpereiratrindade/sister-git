@@ -1598,6 +1598,9 @@ static Response route_post(const std::string &target, const std::string &, const
       if (!valid_json_object(man_text)) return error(409, "Manifesto editorial ausente ou inválido");
       std::string current_stage = json_extract(man_text, "current_stage");
       if (current_stage == "published" && man_text.find(json(tag)) != std::string::npos) {
+        if (man_text.find(json(title)) == std::string::npos || man_text.find(json(notes)) == std::string::npos) {
+          return error(409, "Publicação parcial encontrada, mas os metadados informados não correspondem ao manifesto");
+        }
         auto head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
         std::string commit = head.out;
         while (!commit.empty() && std::isspace(static_cast<unsigned char>(commit.back()))) commit.pop_back();

@@ -193,6 +193,20 @@ curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | py
 git --git-dir="$TMP/repos/artigo-teste.git" tag -l | grep -q 'ed/v1.0-publicado'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"current_stage": "published"'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"editions"'
+
+# Simular falha intermediária: commit publicado persistiu, mas tag não existe.
+PUBLISHED_HEAD="$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)"
+git --git-dir="$TMP/repos/artigo-teste.git" tag -d 'ed/v1.0-publicado' >/dev/null
+[[ "$(curl -s -o "$TMP/pub_conflict_recovery.json" -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"tag_name":"ed/v1.0-publicado","notes":"metadados conflitantes"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish")" == 409 ]]
+[[ -z "$(git --git-dir="$TMP/repos/artigo-teste.git" tag -l 'ed/v1.0-publicado')" ]]
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"tag_name":"ed/v1.0-publicado","notes":"Publicação da primeira edição com DOI e W3C PROV"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish" > "$TMP/pub_recovered.json"
+grep -q '"recovered":true' "$TMP/pub_recovered.json"
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)" == "$PUBLISHED_HEAD" ]]
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse 'ed/v1.0-publicado^{commit}')" == "$PUBLISHED_HEAD" ]]
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"tag_name":"ed/v1.0-publicado","notes":"Publicação da primeira edição com DOI e W3C PROV"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish" | grep -q '"idempotent":true'
