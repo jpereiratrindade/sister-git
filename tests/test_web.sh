@@ -151,11 +151,29 @@ git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' |
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"to":"in_review","reason":"Revisor designado"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition" | grep -q '"to":"in_review"'
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $COLEGA_TOKEN" -H "Content-Type: application/json" \
+  -d '{"recommendation":"accept","summary":"sem designação"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/review")" == 403 ]]
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
-  -d '{"reviewer":"Prof. Carlos","recommendation":"accept_with_revisions","comments":"Artigo excelente, favor detalhar a seção 3."}' \
+  -d '{"email":"colega@embrapa.br","role":"reviewer"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/assign-member" | grep -q '"role":"reviewer"'
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" -d '{"visibility":"private"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/visibility" >/dev/null
+curl -fsS -H "Authorization: Bearer $COLEGA_TOKEN" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q '"project_role":"reviewer"'
+curl -fsS -H "Authorization: Bearer $COLEGA_TOKEN" -H "Content-Type: application/json" \
+  -d '{"reviewer":"Identidade Falsa","recommendation":"accept_with_revisions","comments":"Artigo excelente, favor detalhar a seção 3."}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/review" > "$TMP/review_ed.json"
 grep -q '"ok":true' "$TMP/review_ed.json"
-curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | python3 -m json.tool | grep -q 'Prof. Carlos'
+REVIEW_ID="$(grep -o '"review_id":"[^"]*"' "$TMP/review_ed.json" | cut -d'"' -f4)"
+curl -fsS -H "Authorization: Bearer $COLEGA_TOKEN" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" > "$TMP/after_review.json"
+python3 -m json.tool "$TMP/after_review.json" | grep -q 'Dra. Colega'
+if grep -q 'Identidade Falsa' "$TMP/after_review.json"; then echo '[ERRO] identidade declarada substituiu identidade autenticada' >&2; exit 1; fi
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d "{\"review_id\":\"$REVIEW_ID\",\"response\":\"Recomendações incorporadas na nova versão.\"}" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/respond" | grep -q '"ok":true'
+git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | grep -q '"responses"'
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" -d '{"visibility":"public"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/visibility" >/dev/null
 
 # 5. Publicar edição documental (cria tag ed/v1.0-publicado)
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \

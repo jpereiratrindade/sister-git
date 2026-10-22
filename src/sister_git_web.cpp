@@ -319,6 +319,22 @@ static std::string repo_owner(const std::string &name) {
   return o;
 }
 
+static std::string project_member_role(const std::string &repo, const std::string &email) {
+  if (!g_db || repo.empty() || email.empty()) return "";
+  sqlite3_stmt *stmt = nullptr;
+  std::string role;
+  if (sqlite3_prepare_v2(g_db, "SELECT role FROM project_members WHERE repo = ? AND email = ?", -1, &stmt, nullptr) == SQLITE_OK) {
+    sqlite3_bind_text(stmt, 1, repo.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, email.c_str(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+      const char *value = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+      if (value) role = value;
+    }
+    sqlite3_finalize(stmt);
+  }
+  return role;
+}
+
 static bool is_repo_visible(const std::string &name, const AuthUser &user) {
   std::string vis = repo_visibility(name);
   if (vis != "private") return true;
@@ -326,7 +342,7 @@ static bool is_repo_visible(const std::string &name, const AuthUser &user) {
   if (user.role == "admin") return true;
   std::string owner = repo_owner(name);
   if (owner.empty()) return true;
-  return owner == user.email;
+  return owner == user.email || !project_member_role(name, user.email).empty();
 }
 
 static bool can_write_repo(const std::string &name, const AuthUser &user) {
@@ -518,6 +534,14 @@ static void init_auth_db() {
       role TEXT DEFAULT 'researcher',
       created_by TEXT,
       created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS project_members (
+      repo TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('collaborator','reviewer','editor')),
+      assigned_by TEXT NOT NULL,
+      assigned_at TEXT NOT NULL,
+      PRIMARY KEY(repo, email)
     );
   )";
   char *err = nullptr;
@@ -987,7 +1011,7 @@ static Response compare(const std::string &name, const std::map<std::string, std
   return {200, "application/json; charset=utf-8", b + "]}"};
 }
 
-static Response editorial(const std::string &name) {
+static Response editorial(const std::string &name, const AuthUser &user) {
   auto r = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
   bool has_manifest = r.status == 0;
   std::string manifest_raw = has_manifest ? r.out : "{}";
@@ -1012,9 +1036,10 @@ static Response editorial(const std::string &name) {
   std::string is_ed = (repo_type(name) == "editorial" || has_manifest) ? "true" : "false";
   std::string vis = repo_visibility(name);
   std::string owner = repo_owner(name);
+  std::string project_role = user.role == "admin" ? "editor" : (owner == user.email ? "owner" : project_member_role(name, user.email));
   std::string manifest_json = manifest_valid ? manifest_raw : "{}";
   std::string manifest_error = manifest_valid ? "null" : json("Manifesto .sister-editorial.json contém JSON inválido");
-  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
+  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
 }
 
 static Response archive(const std::string &name, const std::map<std::string, std::string> &q) {
@@ -1136,7 +1161,7 @@ static Response route(const std::string &target, const AuthUser &user) {
     if (action == "tree") return tree(name, q);
     if (action == "blob") return blob(name, q);
     if (action == "compare") return compare(name, q);
-    if (action == "editorial") return editorial(name);
+    if (action == "editorial") return editorial(name, user);
     if (action == "archive") return archive(name, q);
     if (action == "raw") return raw(name, q);
     return error(404, "Rota não encontrada");
@@ -1402,6 +1427,29 @@ static Response route_post(const std::string &target, const std::string &, const
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"commit\":" + json(r.out) + ",\"short_hash\":" + json(r.out.substr(0, 7)) + "}"};
     }
 
+    if (action == "editorial/assign-member") {
+      if (user.role != "admin") return error(403, "Designação de equipe restrita ao administrador editorial");
+      std::string email = json_extract(body, "email");
+      std::string role = json_extract(body, "role");
+      std::transform(email.begin(), email.end(), email.begin(), [](unsigned char c) { return std::tolower(c); });
+      if (role != "collaborator" && role != "reviewer" && role != "editor") return error(400, "Papel de projeto inválido");
+      std::string allowed_name, allowed_role;
+      if (!is_user_allowed(email, allowed_name, allowed_role)) return error(400, "Usuário deve estar previamente autorizado");
+      sqlite3_stmt *stmt = nullptr;
+      const char *sql = "INSERT INTO project_members(repo,email,role,assigned_by,assigned_at) VALUES(?,?,?,?,?) ON CONFLICT(repo,email) DO UPDATE SET role=excluded.role,assigned_by=excluded.assigned_by,assigned_at=excluded.assigned_at";
+      if (!g_db || sqlite3_prepare_v2(g_db, sql, -1, &stmt, nullptr) != SQLITE_OK) return error(500, "Falha ao preparar designação editorial");
+      sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 2, email.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 3, role.c_str(), -1, SQLITE_TRANSIENT);
+      sqlite3_bind_text(stmt, 4, user.email.c_str(), -1, SQLITE_TRANSIENT);
+      std::string assigned_at = iso_now();
+      sqlite3_bind_text(stmt, 5, assigned_at.c_str(), -1, SQLITE_TRANSIENT);
+      bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+      sqlite3_finalize(stmt);
+      if (!ok) return error(500, "Falha ao salvar designação editorial");
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"email\":" + json(email) + ",\"role\":" + json(role) + "}"};
+    }
+
     if (action == "editorial/transition") {
       std::string next = json_extract(body, "to");
       std::string reason_text = json_extract(body, "reason");
@@ -1439,19 +1487,18 @@ static Response route_post(const std::string &target, const std::string &, const
     }
 
     if (action == "editorial/review") {
-      if (!can_write_repo(name, user)) {
-        return error(403, "Parecer permitido somente ao proprietário ou administrador enquanto não houver designação formal de revisores");
-      }
-      std::string reviewer = json_extract(body, "reviewer");
+      if (user.role != "admin" && project_member_role(name, user.email) != "reviewer") return error(403, "Parecer permitido somente a revisor formalmente designado");
+      std::string reviewer = user.name.empty() ? user.email : user.name;
       std::string recommendation = json_extract(body, "recommendation");
       std::string summary = json_extract(body, "summary");
       if (summary.empty()) summary = json_extract(body, "comments");
-      std::string resp_author = json_extract(body, "author_response");
-      if (reviewer.empty()) reviewer = user.name.empty() ? user.email : user.name;
+      if (summary.empty()) return error(400, "Síntese do parecer é obrigatória");
+      if (recommendation != "accept" && recommendation != "accept_with_revisions" && recommendation != "revise_and_resubmit" && recommendation != "reject") return error(400, "Recomendação editorial inválida");
 
-      auto head_r = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
-      std::string head_hash = head_r.status == 0 ? head_r.out : "";
+      auto submitted = run({"git", "--git-dir=" + git_dir(name), "for-each-ref", "--sort=-creatordate", "--count=1", "--format=%(objectname)", "refs/sister/submissions"});
+      std::string head_hash = submitted.status == 0 ? submitted.out : "";
       while (!head_hash.empty() && (head_hash.back() == '\n' || head_hash.back() == '\r' || head_hash.back() == ' ')) head_hash.pop_back();
+      if (head_hash.empty()) return error(409, "Nenhuma submissão congelada encontrada para avaliação");
 
       auto cur_man = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
       std::string man_text = cur_man.status == 0 ? cur_man.out : "{}";
@@ -1467,9 +1514,6 @@ static Response route_post(const std::string &target, const std::string &, const
                             "      \"date\": " + json(iso_now()) + ",\n"
                             "      \"recommendation\": " + json(recommendation) + ",\n"
                             "      \"summary\": " + json(summary);
-      if (!resp_author.empty()) {
-        new_rev += ",\n      \"resolution\": {\"author_response\": " + json(resp_author) + ", \"resolved_in_commit\": " + json(head_hash) + "}";
-      }
       new_rev += "\n    }";
 
       size_t rev_pos = man_text.find("\"reviews\": [");
@@ -1499,6 +1543,25 @@ static Response route_post(const std::string &target, const std::string &, const
       auto r = git_commit_file(name, ".sister-editorial.json", man_text, "editorial: register peer review " + rev_id + " (" + recommendation + ")", reviewer, author_email);
       if (r.status != 0) return error(r.status == 409 ? 409 : 500, r.out);
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"review_id\":" + json(rev_id) + "}"};
+    }
+
+    if (action == "editorial/respond") {
+      if (!can_write_repo(name, user)) return error(403, "Resposta permitida somente ao autor responsável ou administrador");
+      std::string review_id = json_extract(body, "review_id");
+      std::string response_text = json_extract(body, "response");
+      if (review_id.empty() || response_text.empty()) return error(400, "Parecer e resposta são obrigatórios");
+      auto cur_man = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
+      if (cur_man.status != 0 || !valid_json_object(cur_man.out)) return error(409, "Manifesto editorial ausente ou inválido");
+      if (cur_man.out.find(json(review_id)) == std::string::npos) return error(404, "Parecer não encontrado");
+      auto head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
+      std::string commit = head.out;
+      while (!commit.empty() && std::isspace(static_cast<unsigned char>(commit.back()))) commit.pop_back();
+      std::string manifest = cur_man.out;
+      std::string response = "{\"review_id\":" + json(review_id) + ",\"author\":" + json(user.email) + ",\"date\":" + json(iso_now()) + ",\"response\":" + json(response_text) + ",\"commit\":" + json(commit) + "}";
+      if (!json_append_object(manifest, "responses", response)) return error(409, "Falha ao registrar resposta no manifesto");
+      auto saved = git_commit_file(name, ".sister-editorial.json", manifest, "editorial: author response to " + review_id, user.name, user.email);
+      if (saved.status != 0) return error(saved.status == 409 ? 409 : 500, saved.out);
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"review_id\":" + json(review_id) + ",\"commit\":" + json(saved.out) + "}"};
     }
 
     if (action == "editorial/publish") {

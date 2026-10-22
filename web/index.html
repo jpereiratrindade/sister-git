@@ -246,8 +246,8 @@
         <input type="hidden" id="reviewRepoName">
         <div class="modal-body-pad">
           <label class="field-label">
-            <span>Nome do Parecerista / Avaliador <small>Obrigatório</small></span>
-            <input type="text" id="reviewReviewer" required placeholder="Ex.: Prof. Carlos Eduardo (UFSM)">
+            <span>Parecerista autenticado</span>
+            <input type="text" id="reviewReviewer" readonly placeholder="Identidade da sessão institucional">
           </label>
 
           <label class="field-label">
@@ -264,12 +264,6 @@
             <span>Síntese do Parecer &amp; Recomendações <small>Obrigatório</small></span>
             <textarea id="reviewSummary" required rows="5"
               placeholder="Fundamente seus apontamentos técnicos, metodológicos e epistemológicos..."></textarea>
-          </label>
-
-          <label class="field-label">
-            <span>Resposta do Autor / Resolução <small>Opcional (se já incorporado)</small></span>
-            <textarea id="reviewAuthorResp" rows="2"
-              placeholder="Descreva como os apontamentos foram atendidos nas revisões do manuscrito."></textarea>
           </label>
 
           <div id="reviewFeedback" class="form-feedback hidden"></div>

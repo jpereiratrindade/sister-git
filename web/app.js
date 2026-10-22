@@ -1153,6 +1153,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
     }
   }
   const reviews = manifest.reviews || [];
+  const responses = manifest.responses || [];
 
   // Detect main document
   let mainDoc = manifest.document_main;
@@ -1387,9 +1388,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
             <h3 style="margin:0; color:var(--navy); font-size:1.1rem;">Rodadas de Pareceres e Avaliação por Pares</h3>
             <p style="margin:2px 0 0; color:var(--muted); font-size:0.82rem;">Rastreabilidade W3C PROV: cada parecer fica registrado no histórico imutável</p>
           </div>
-          <button type="button" class="btn-primary" onclick="openNewReviewModal('${esc(repo)}')">
-            + Emitir Parecer Editorial
-          </button>
+          ${edData.project_role === 'reviewer' || currentUser?.role === 'admin' ? `<button type="button" class="btn-primary" onclick="openNewReviewModal('${esc(repo)}')">+ Emitir Parecer Editorial</button>` : ''}
+          ${currentUser?.role === 'admin' ? `<button type="button" class="btn-cancel" onclick="assignProjectReviewer('${esc(repo)}')">Designar Revisor</button>` : ''}
         </div>
 
         ${reviews.length ? reviews.map(r => `
@@ -1404,6 +1404,13 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
               </div>
             </div>
             <div class="review-text">${esc(r.summary || r.comments || '')}</div>
+            ${responses.filter(resp => resp.review_id === r.id).map(resp => `
+              <div class="review-resolution-box">
+                <strong>Resposta do Autor (${esc(resp.author || '')}):</strong>
+                <div>${esc(resp.response || '')}</div>
+                <div style="margin-top:4px; font-size:0.75rem; color:var(--muted);">${formatDate(resp.date)} · commit ${esc((resp.commit || '').substr(0, 8))}</div>
+              </div>`).join('')}
+            ${currentUser && (currentUser.role === 'admin' || edData.owner === currentUser.email) ? `<button type="button" class="btn-cancel" onclick="respondToReview('${esc(repo)}','${esc(r.id || '')}')">Responder ao parecer</button>` : ''}
             ${r.resolution ? `
               <div class="review-resolution-box">
                 <strong>Resposta do Autor / Resolução:</strong>
@@ -2077,7 +2084,31 @@ window.handleCreateProject = async function(e) {
 
 window.openNewReviewModal = function(repo) {
   document.querySelector('#reviewRepoName').value = repo;
+  document.querySelector('#reviewReviewer').value = currentUser?.name || currentUser?.email || '';
   openModal('modalNewReview');
+};
+
+window.assignProjectReviewer = async function(repo) {
+  const email = prompt('E-mail institucional do revisor:');
+  if (!email) return;
+  try {
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/assign-member`, { email: email.trim(), role: 'reviewer' });
+    showToast('✓ Revisor designado para este projeto.');
+  } catch (err) {
+    alert('Erro ao designar revisor: ' + err.message);
+  }
+};
+
+window.respondToReview = async function(repo, reviewId) {
+  const response = prompt('Resposta formal do autor ao parecer:');
+  if (!response) return;
+  try {
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/respond`, { review_id: reviewId, response: response.trim() });
+    showToast('✓ Resposta do autor registrada no Git.');
+    await renderEditorialDoc(repo, 'reviews');
+  } catch (err) {
+    alert('Erro ao responder parecer: ' + err.message);
+  }
 };
 
 window.handleCreateReview = async function(e) {
@@ -2086,7 +2117,6 @@ window.handleCreateReview = async function(e) {
   const reviewer = document.querySelector('#reviewReviewer').value.trim();
   const rec = document.querySelector('#reviewRecommendation').value;
   const summary = document.querySelector('#reviewSummary').value.trim();
-  const authorResp = document.querySelector('#reviewAuthorResp')?.value.trim();
   const btn = document.querySelector('#btnSubmitReview');
 
   btn.disabled = true;
@@ -2096,8 +2126,7 @@ window.handleCreateReview = async function(e) {
     await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/review`, {
       reviewer,
       recommendation: rec,
-      summary,
-      author_response: authorResp
+      summary
     });
     closeModal('modalNewReview');
     showToast('✓ Parecer registrado no Git com proveniência!');
