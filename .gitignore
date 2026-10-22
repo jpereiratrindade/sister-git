@@ -2,4 +2,5 @@
 *.tmp
 .env
 *.secret
+*.db
 build/

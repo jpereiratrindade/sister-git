@@ -1350,10 +1350,25 @@ static void client(int fd) {
   h += "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
        "Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n"
        "Connection: close\r\n\r\n";
-  write(fd, h.data(), h.size());
-  write(fd, r.body.data(), r.body.size());
+
+  auto write_all = [](int sfd, const char *buf, size_t len) -> bool {
+    size_t sent = 0;
+    while (sent < len) {
+      ssize_t n = write(sfd, buf + sent, len - sent);
+      if (n <= 0) {
+        if (n < 0 && (errno == EINTR || errno == EAGAIN)) continue;
+        return false;
+      }
+      sent += n;
+    }
+    return true;
+  };
+
+  write_all(fd, h.data(), h.size());
+  write_all(fd, r.body.data(), r.body.size());
   close(fd);
 }
+
 
 static void load_env_file(const std::string &path) {
   std::ifstream f(path);
