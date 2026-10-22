@@ -97,6 +97,16 @@ grep -q '"has_manifest":true' "$TMP/morfo_ed.json"
 grep -q 'ed/v1.0' "$TMP/morfo_ed.json"
 grep -q 'Campos Nativos' "$TMP/morfo_ed.json"
 
+# Manifesto inválido nunca pode corromper o JSON da resposta da API.
+printf '{"project_type":"editorial",, "title":"Quebrado"}\n' > "$TMP/work/.sister-editorial.json"
+git -C "$TMP/work" add .sister-editorial.json
+git -C "$TMP/work" commit -qm "test: add malformed editorial manifest"
+git -C "$TMP/work" push -q "$TMP/repos/MORFO.git" main
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/MORFO/editorial" > "$TMP/malformed_ed.json"
+python3 -m json.tool "$TMP/malformed_ed.json" >/dev/null
+grep -q '"manifest":{}' "$TMP/malformed_ed.json"
+grep -q 'JSON inválido' "$TMP/malformed_ed.json"
+
 # Testes interativos C++26 do SisTer Git Editorial
 # 1. Criação de repositório editorial
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
