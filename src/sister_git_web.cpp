@@ -1333,7 +1333,7 @@ static void client(int fd) {
 
   AuthUser user = authenticate_request(header_part);
   Response r;
-  if (method == "GET") {
+  if (method == "GET" || method == "HEAD") {
     r = route(target, user);
   } else if (method == "POST") {
     r = route_post(target, header_part, body, user);
@@ -1365,7 +1365,9 @@ static void client(int fd) {
   };
 
   write_all(fd, h.data(), h.size());
-  write_all(fd, r.body.data(), r.body.size());
+  if (method != "HEAD") {
+    write_all(fd, r.body.data(), r.body.size());
+  }
   close(fd);
 }
 
