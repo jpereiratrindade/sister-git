@@ -54,29 +54,37 @@ struct AuthUser {
 };
 
 static std::string repo_root, web_root, auth_token;
+static std::string bootstrap_admin_email;
 static size_t max_output = 4 * 1024 * 1024;
 static size_t max_upload = 64 * 1024 * 1024;
 static SmtpConfig g_smtp;
 static sqlite3 *g_db = nullptr;
 
-static std::string base64_decode(const std::string &in) {
-  std::string out;
+static bool base64_decode(const std::string &in, std::string &out) {
+  out.clear();
   std::vector<int> T(256, -1);
   const std::string b64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   for (int i = 0; i < 64; i++) T[static_cast<unsigned char>(b64[i])] = i;
 
-  int val = 0, valb = -8;
-  for (unsigned char c : in) {
-    if (std::isspace(c) || c == '=') continue;
-    if (T[c] == -1) break;
-    val = (val << 6) + T[c];
-    valb += 6;
-    if (valb >= 0) {
-      out.push_back(char((val >> valb) & 0xFF));
-      valb -= 8;
-    }
+  if (in.empty() || in.size() % 4 != 0) return false;
+  out.reserve((in.size() / 4) * 3);
+  for (size_t i = 0; i < in.size(); i += 4) {
+    bool last = i + 4 == in.size();
+    unsigned char c0 = in[i], c1 = in[i + 1], c2 = in[i + 2], c3 = in[i + 3];
+    if (T[c0] < 0 || T[c1] < 0) return false;
+    if ((c2 == '=' || c3 == '=') && !last) return false;
+    if (c2 == '=' && c3 != '=') return false;
+    int v0 = T[c0], v1 = T[c1];
+    out.push_back(static_cast<char>((v0 << 2) | (v1 >> 4)));
+    if (c2 == '=') return (v1 & 0x0f) == 0;
+    if (T[c2] < 0) return false;
+    int v2 = T[c2];
+    out.push_back(static_cast<char>(((v1 & 0x0f) << 4) | (v2 >> 2)));
+    if (c3 == '=') return (v2 & 0x03) == 0;
+    if (T[c3] < 0) return false;
+    out.push_back(static_cast<char>(((v2 & 0x03) << 6) | T[c3]));
   }
-  return out;
+  return true;
 }
 
 static std::string mime_type_from_filename(const std::string &filename) {
@@ -321,6 +329,13 @@ static bool is_repo_visible(const std::string &name, const AuthUser &user) {
   return owner == user.email;
 }
 
+static bool can_write_repo(const std::string &name, const AuthUser &user) {
+  if (!user.authenticated) return false;
+  if (user.role == "admin") return true;
+  std::string owner = repo_owner(name);
+  return !owner.empty() && owner == user.email;
+}
+
 static bool valid_revision(const std::string &rev) {
   if (rev.empty() || rev.size() > 128) return false;
   if (rev.find("..") != std::string::npos || rev.find(' ') != std::string::npos) return false;
@@ -485,8 +500,8 @@ static bool has_allowed_users() {
 }
 
 static bool is_user_allowed(const std::string &email, std::string &out_name, std::string &out_role) {
-  if (!g_db) return true;
-  if (!has_allowed_users()) return true;
+  if (!g_db) return false;
+  if (!has_allowed_users()) return !bootstrap_admin_email.empty() && email == bootstrap_admin_email;
   sqlite3_stmt *stmt = nullptr;
   bool ok = false;
   if (sqlite3_prepare_v2(g_db, "SELECT name, role FROM allowed_users WHERE email = ?", -1, &stmt, nullptr) == SQLITE_OK) {
@@ -657,9 +672,9 @@ static AuthUser authenticate_request(const std::string &headers, const std::stri
 // GIT PLUMBING FOR BARE REPOSITORIES
 // ============================================================================
 
-static Result git_commit_file(const std::string &name, const std::string &filename, const std::string &content, const std::string &commit_msg, const std::string &author_name = "SisTer Editor", const std::string &author_email = "editorial@labeco.invalid") {
+static Result git_commit_file(const std::string &name, const std::string &filename, const std::string &content, const std::string &commit_msg, const std::string &author_name = "SisTer Editor", const std::string &author_email = "editorial@labeco.invalid", bool normalize_text = true) {
   std::string clean_content = content;
-  if (!clean_content.empty() && clean_content.back() != '\n') {
+  if (normalize_text && !clean_content.empty() && clean_content.back() != '\n') {
     clean_content += '\n';
   }
   std::string gd = git_dir(name);
@@ -715,8 +730,10 @@ static Result git_commit_file(const std::string &name, const std::string &filena
   std::string new_commit = ct.out;
   while (!new_commit.empty() && (new_commit.back() == '\n' || new_commit.back() == '\r' || new_commit.back() == ' ')) new_commit.pop_back();
 
-  auto ur = run({"git", "--git-dir=" + gd, "update-ref", "refs/heads/main", new_commit});
-  if (ur.status != 0) return {ur.status, "Falha ao atualizar ref main"};
+  std::vector<std::string> update_args = {"git", "--git-dir=" + gd, "update-ref", "refs/heads/main", new_commit};
+  update_args.push_back(has_head ? parent_commit : std::string(40, '0'));
+  auto ur = run(update_args);
+  if (ur.status != 0) return {409, "Conflito de concorrência: o repositório mudou durante a gravação"};
   if (!has_head) {
     run({"git", "--git-dir=" + gd, "symbolic-ref", "HEAD", "refs/heads/main"});
   }
@@ -1066,6 +1083,7 @@ static Response route(const std::string &target, const AuthUser &user) {
     if (!is_repo_visible(name, user)) return error(404, "Repositório não encontrado");
 
     std::string action = slash == std::string::npos ? "" : rest.substr(slash + 1);
+
     if (action == "refs") return refs(name);
     if (action == "commits") return commits(name, q);
     if (action == "tree") return tree(name, q);
@@ -1093,7 +1111,7 @@ static Response route_post(const std::string &target, const std::string &, const
     }
 
     std::string a_name, a_role;
-    if (has_allowed_users() && !is_user_allowed(email, a_name, a_role)) {
+    if (!is_user_allowed(email, a_name, a_role)) {
       return error(403, "E-mail institucional não cadastrado no SisTer Git. Solicite a liberação de acesso ao administrador do laboratório.");
     }
 
@@ -1162,10 +1180,13 @@ static Response route_post(const std::string &target, const std::string &, const
     std::string name = email.substr(0, email.find('@'));
     std::replace(name.begin(), name.end(), '.', ' ');
     if (!name.empty()) name[0] = std::toupper(name[0]);
-    std::string role = (email.find("admin") != std::string::npos) ? "admin" : "researcher";
+    std::string role = "researcher";
 
     if (g_db) {
       if (!has_allowed_users()) {
+        if (bootstrap_admin_email.empty() || email != bootstrap_admin_email) {
+          return error(403, "Administrador inicial não autorizado pela configuração do servidor");
+        }
         sqlite3_stmt *astmt = nullptr;
         if (sqlite3_prepare_v2(g_db, "INSERT OR IGNORE INTO allowed_users(email, name, role, created_by, created_at) VALUES(?, ?, 'admin', 'system', ?)", -1, &astmt, nullptr) == SQLITE_OK) {
           sqlite3_bind_text(astmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
@@ -1300,6 +1321,10 @@ static Response route_post(const std::string &target, const std::string &, const
 
     std::string action = slash == std::string::npos ? "" : rest.substr(slash + 1);
 
+    if (action != "editorial/review" && !can_write_repo(name, user)) {
+      return error(403, "Apenas o proprietário do projeto ou administrador pode alterar este repositório");
+    }
+
     if (action == "visibility") {
       std::string owner = repo_owner(name);
       if (!owner.empty() && user.role != "admin" && owner != user.email) {
@@ -1326,11 +1351,14 @@ static Response route_post(const std::string &target, const std::string &, const
 
       std::string author_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
       auto r = git_commit_file(name, filename, content, message, author, author_email);
-      if (r.status != 0) return error(500, r.out);
+      if (r.status != 0) return error(r.status == 409 ? 409 : 500, r.out);
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"commit\":" + json(r.out) + ",\"short_hash\":" + json(r.out.substr(0, 7)) + "}"};
     }
 
     if (action == "editorial/review") {
+      if (!can_write_repo(name, user)) {
+        return error(403, "Parecer permitido somente ao proprietário ou administrador enquanto não houver designação formal de revisores");
+      }
       std::string reviewer = json_extract(body, "reviewer");
       std::string recommendation = json_extract(body, "recommendation");
       std::string summary = json_extract(body, "summary");
@@ -1383,19 +1411,17 @@ static Response route_post(const std::string &target, const std::string &, const
 
       std::string author_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
       auto r = git_commit_file(name, ".sister-editorial.json", man_text, "editorial: register peer review " + rev_id + " (" + recommendation + ")", reviewer, author_email);
-      if (r.status != 0) return error(500, r.out);
+      if (r.status != 0) return error(r.status == 409 ? 409 : 500, r.out);
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"review_id\":" + json(rev_id) + "}"};
     }
 
     if (action == "editorial/publish") {
+      if (user.role != "admin") return error(403, "Publicação restrita ao administrador editorial");
       std::string tag = json_extract(body, "tag");
       if (tag.empty()) tag = json_extract(body, "tag_name");
       std::string title = json_extract(body, "title");
       std::string notes = json_extract(body, "notes");
-      if (tag.empty() || tag.find("..") != std::string::npos) return error(400, "Tag editorial inválida");
-
-      auto tag_r = run({"git", "--git-dir=" + git_dir(name), "tag", "-a", tag, "HEAD", "-m", title + " - " + notes});
-      if (tag_r.status != 0) return error(500, "Falha ao criar tag editorial: " + tag_r.out);
+      if (tag.rfind("ed/", 0) != 0 || !valid_revision(tag)) return error(400, "Tag editorial deve seguir ed/vX.Y");
 
       auto cur_man = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
       std::string man_text = cur_man.status == 0 ? cur_man.out : "{}";
@@ -1410,8 +1436,12 @@ static Response route_post(const std::string &target, const std::string &, const
 
       std::string auth_name = user.name.empty() ? "SisTer Editor" : user.name;
       std::string auth_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
-      git_commit_file(name, ".sister-editorial.json", man_text, "editorial: publish edition " + tag, auth_name, auth_email);
-      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"tag\":" + json(tag) + "}"};
+      auto published = git_commit_file(name, ".sister-editorial.json", man_text, "editorial: publish edition " + tag, auth_name, auth_email);
+      if (published.status != 0) return error(published.status == 409 ? 409 : 500, published.out);
+
+      auto tag_r = run({"git", "--git-dir=" + git_dir(name), "tag", "-a", tag, published.out, "-m", title + " - " + notes});
+      if (tag_r.status != 0) return error(500, "Manifesto publicado, mas falhou criação da tag editorial: " + tag_r.out);
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"tag\":" + json(tag) + ",\"commit\":" + json(published.out) + "}"};
     }
 
     if (action == "upload") {
@@ -1429,12 +1459,13 @@ static Response route_post(const std::string &target, const std::string &, const
       if (filename.empty() || !valid_path(filename)) return error(400, "Nome de arquivo inválido");
       if (commit_msg.empty()) commit_msg = "Upload de arquivo: " + filename;
 
-      std::string content = base64_decode(b64);
+      std::string content;
+      if (!base64_decode(b64, content)) return error(400, "Conteúdo Base64 ausente ou inválido");
       std::string author_name = user.name.empty() ? "Pesquisador LABECO" : user.name;
       std::string author_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
 
-      auto r = git_commit_file(name, filename, content, commit_msg, author_name, author_email);
-      if (r.status != 0) return error(500, "Falha ao gravar arquivo no Git: " + r.out);
+      auto r = git_commit_file(name, filename, content, commit_msg, author_name, author_email, false);
+      if (r.status != 0) return error(r.status == 409 ? 409 : 500, "Falha ao gravar arquivo no Git: " + r.out);
 
       if (is_main == "true") {
         auto m_res = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
@@ -1476,6 +1507,7 @@ static std::string reason(int s) {
   if (s == 403) return "Forbidden";
   if (s == 404) return "Not Found";
   if (s == 405) return "Method Not Allowed";
+  if (s == 409) return "Conflict";
   return "Internal Server Error";
 }
 
@@ -1587,6 +1619,8 @@ int main(int argc, char **argv) {
   }
 
   auth_token = getenv("SISTER_GIT_WEB_TOKEN") ? getenv("SISTER_GIT_WEB_TOKEN") : "";
+  bootstrap_admin_email = getenv("SISTER_GIT_ADMIN_EMAIL") ? getenv("SISTER_GIT_ADMIN_EMAIL") : "";
+  std::transform(bootstrap_admin_email.begin(), bootstrap_admin_email.end(), bootstrap_admin_email.begin(), [](unsigned char c) { return std::tolower(c); });
 
   // Load .smtp.env if exists
   load_env_file(repo_root + "/.smtp.env");

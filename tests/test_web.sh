@@ -37,7 +37,7 @@ curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/compare?base=main~1&head=ma
 git --git-dir="$TMP/repos/empty.git" config sister.visibility private
 git --git-dir="$TMP/repos/MORFO.git" config sister.visibility public
 PORT_AUTH=$((PORT + 2))
-SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" SISTER_GIT_WEB_TOKEN="test-token-123" "$HERE/build/sister-git-web" --port "$PORT_AUTH" --dev-auth >"$TMP/server_auth.log" 2>&1 & PID_AUTH=$!
+SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" SISTER_GIT_WEB_TOKEN="test-token-123" SISTER_GIT_ADMIN_EMAIL="pesquisador@embrapa.br" "$HERE/build/sister-git-web" --port "$PORT_AUTH" --dev-auth >"$TMP/server_auth.log" 2>&1 & PID_AUTH=$!
 trap 'status=$?; [[ -n "${PID:-}" ]] && kill "$PID" 2>/dev/null || :; [[ -n "${PID_AUTH:-}" ]] && kill "$PID_AUTH" 2>/dev/null || :; if ((status)); then cat "$TMP/server.log" "$TMP/server_auth.log" 2>/dev/null || :; fi; rm -rf -- "$TMP"; exit $status' EXIT
 for _ in {1..50}; do curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/health" >/dev/null && break; sleep .05; done
 
@@ -54,6 +54,7 @@ grep -q '"name":"empty"' "$TMP/auth_repos.json"
 grep -q '"visibility":"private"' "$TMP/auth_repos.json"
 
 # Teste Autenticação OTP Passwordless Institucional
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Content-Type: application/json" -d '{"email":"intruso@embrapa.br"}' "http://127.0.0.1:$PORT_AUTH/api/v1/auth/request-code")" == 403 ]]
 curl -fsS -X POST -H "Content-Type: application/json" \
   -d '{"email":"pesquisador@embrapa.br"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/auth/request-code" | grep -q '"ok":true'
@@ -75,6 +76,14 @@ curl -fsS -H "Authorization: Bearer $OTP_TOKEN" -H "Content-Type: application/js
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Content-Type: application/json" -d '{"email":"desconhecido@embrapa.br"}' "http://127.0.0.1:$PORT_AUTH/api/v1/auth/request-code")" == 403 ]]
 # Usuário cadastrado recebe 200
 curl -fsS -X POST -H "Content-Type: application/json" -d '{"email":"colega@embrapa.br"}' "http://127.0.0.1:$PORT_AUTH/api/v1/auth/request-code" | grep -q '"ok":true'
+curl -fsS -X POST -H "Content-Type: application/json" \
+  -d '{"email":"colega@embrapa.br","code":"123456"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/auth/verify-code" > "$TMP/colega_verify.json"
+COLEGA_TOKEN="$(grep -o '"token":"[^"]*"' "$TMP/colega_verify.json" | cut -d'"' -f4)"
+# Usuário autenticado não pode escrever em projeto público que não possui.
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $COLEGA_TOKEN" -H "Content-Type: application/json" \
+  -d '{"content":"intrusão","message":"não autorizado"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/MORFO/editorial/save")" == 403 ]]
 
 # Teste de alternância de visibilidade via API
 curl -fsS -H "Authorization: Bearer $OTP_TOKEN" -H "Content-Type: application/json" \
@@ -141,6 +150,7 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
 grep -q '"ok":true' "$TMP/pub_ed.json"
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | python3 -m json.tool | grep -q 'ed/v1.0-publicado'
 git --git-dir="$TMP/repos/artigo-teste.git" tag -l | grep -q 'ed/v1.0-publicado'
+git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"current_stage": "published"'
 
 # 6. Testar download de arquivo compactado (ZIP e TAR.GZ)
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=zip" > "$TMP/artigo.zip"
@@ -149,15 +159,19 @@ curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=
 file "$TMP/artigo.tar.gz" | grep -qi 'gzip'
 
 # 7. Testar upload de documento (DOCX / ODT / TEX / MD) e download raw
-B64_SAMPLE=$(printf 'PK\x03\x04teste-docx-binario' | base64 -w0)
+printf 'PK\x03\x04teste-docx-binario\x00\xff' > "$TMP/artigo-original.docx"
+B64_SAMPLE=$(base64 -w0 "$TMP/artigo-original.docx")
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d "{\"filename\":\"artigo-completo.docx\",\"content_base64\":\"$B64_SAMPLE\",\"commit_msg\":\"Upload do manuscrito original em DOCX\",\"is_main\":\"true\"}" \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload" > "$TMP/upload_resp.json"
 grep -q '"ok":true' "$TMP/upload_resp.json"
 
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=artigo-completo.docx" > "$TMP/artigo_baixado.docx"
-grep -q 'teste-docx-binario' "$TMP/artigo_baixado.docx"
+cmp "$TMP/artigo-original.docx" "$TMP/artigo_baixado.docx"
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'artigo-completo.docx'
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"filename":"corrompido.pdf","content_base64":"%%%INVALIDO%%%","commit_msg":"deve falhar"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload")" == 400 ]]
 
 if SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" "$HERE/build/sister-git-web" --bind 0.0.0.0 --port $((PORT+1)) >"$TMP/public.log" 2>&1; then echo '[ERRO] bind público aceito sem token' >&2; exit 1; fi
 git --git-dir="$TMP/repos/MORFO.git" fsck --full >/dev/null
