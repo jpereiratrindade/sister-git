@@ -1,7 +1,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++26 -O2 -Wall -Wextra -Wpedantic
 
-.PHONY: all test clean deploy-srv
+.PHONY: all test test-e2e clean deploy-srv
 
 all: build/sister-git-web
 
@@ -11,6 +11,9 @@ build/sister-git-web: src/sister_git_web.cpp
 
 test: all
 	bash tests/test_web.sh
+
+test-e2e: all
+	bash tests/test_browser_e2e.sh
 
 deploy-srv: build/sister-git-web
 	scp build/sister-git-web jpereiratrindade@10.163.80.129:~/bin/sister-git-web.new
