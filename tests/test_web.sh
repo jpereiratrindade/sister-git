@@ -119,6 +119,13 @@ grep -q 'JSON inválido' "$TMP/malformed_ed.json"
 # Testes interativos C++26 do SisTer Git Editorial
 # 1. Criação de repositório editorial
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"name":"editorial-privado-padrao","type":"editorial","title":"Privado por padrão"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos" | grep -q '"ok":true'
+[[ "$(git --git-dir="$TMP/repos/editorial-privado-padrao.git" config --get sister.visibility)" == private ]]
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"name":"visibilidade-invalida","type":"editorial","visibility":"aberta"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos")" == 400 ]]
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"name":"artigo-teste","description":"Artigo sobre ecologia","type":"editorial","visibility":"public","title":"Ecologia dos Campos"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/create_ed.json"
 grep -q '"ok":true' "$TMP/create_ed.json"

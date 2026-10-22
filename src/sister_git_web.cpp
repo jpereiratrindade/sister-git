@@ -1386,7 +1386,8 @@ static Response route_post(const std::string &target, const std::string &, const
     std::string description = json_extract(body, "description");
     std::string author = json_extract(body, "author");
     if (type.empty()) type = "editorial";
-    if (vis.empty()) vis = "public";
+    if (vis.empty()) vis = type == "editorial" ? "private" : "public";
+    if (vis != "private" && vis != "public") return error(400, "Visibilidade deve ser 'private' ou 'public'");
     return create_repo(name, type, vis, title, description, author, user);
   }
 
