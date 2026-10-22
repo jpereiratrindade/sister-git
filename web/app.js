@@ -1344,8 +1344,17 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
       </div>
     `;
   } else if (tab === 'editor') {
-    const localDraft = localStorage.getItem('sister_draft_' + repo);
-    const textToShow = (localDraft && localDraft.trim().length > 0) ? localDraft : rawMarkdown;
+    let draftRecord = null;
+    try {
+      const storedDraft = localStorage.getItem('sister_draft_' + repo);
+      if (storedDraft) {
+        try { draftRecord = JSON.parse(storedDraft); }
+        catch (_) { draftRecord = { content: storedDraft, base_head: '', legacy: true }; }
+      }
+    } catch (_) {}
+    const draftContent = draftRecord && typeof draftRecord.content === 'string' ? draftRecord.content : '';
+    const draftDiverged = !!draftContent && (!draftRecord.base_head || draftRecord.base_head !== edData.head);
+    const textToShow = draftContent && !draftDiverged ? draftContent : rawMarkdown;
 
     tabContent = !isTextDoc ? `
       <div class="empty-state" style="background:#fff; padding:40px; text-align:center;">
@@ -1356,6 +1365,21 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
       <div class="empty-state" style="background:#fff; padding:40px; text-align:center;"><h3>Modo somente leitura</h3><p>Editor disponível apenas ao autor responsável ou editor.</p></div>
     ` : `
       <div class="split-editor-container">
+        ${draftDiverged ? `
+          <div class="notice-box" id="divergentDraftNotice" style="margin-bottom:16px;">
+            <strong>Rascunho local baseado em outra versão</strong>
+            <p>O conteúdo local foi preservado. Escolha conscientemente antes de editar.</p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button type="button" class="btn-primary" onclick="recoverLocalDraft('${esc(repo)}')">Recuperar rascunho</button>
+              <button type="button" class="btn-cancel" onclick="toggleDraftComparison()">Comparar com Git</button>
+              <button type="button" class="btn-cancel" onclick="discardLocalDraft('${esc(repo)}')">Descartar rascunho</button>
+            </div>
+            <div id="draftComparison" class="hidden" style="display:none; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px;">
+              <div><strong>Rascunho local</strong><pre style="white-space:pre-wrap; max-height:280px; overflow:auto;">${esc(draftContent)}</pre></div>
+              <div><strong>Versão Git atual</strong><pre style="white-space:pre-wrap; max-height:280px; overflow:auto;">${esc(rawMarkdown)}</pre></div>
+            </div>
+          </div>
+        ` : ''}
         <div class="split-editor-grid">
           <div class="editor-pane">
             <div class="pane-header">
@@ -1538,18 +1562,53 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   `;
 
   if (tab === 'editor' && isTextDoc && canWrite) {
-    handleEditorInput(document.querySelector('#liveEditorTextarea')?.value || '');
+    handleEditorInput(document.querySelector('#liveEditorTextarea')?.value || '', '', false);
   }
 }
 
-window.handleEditorInput = function(val, repo) {
+window.handleEditorInput = function(val, repo, persist = true) {
   const p = document.querySelector('#livePreviewPane');
   const count = document.querySelector('#charCount');
   if (p) p.innerHTML = renderMarkdown(val);
   if (count) count.textContent = `${val.length} caracteres`;
-  if (repo) {
-    try { localStorage.setItem('sister_draft_' + repo, val); } catch (_) {}
+  if (repo && persist) {
+    try {
+      localStorage.setItem('sister_draft_' + repo, JSON.stringify({
+        content: val,
+        base_head: (window.sisterEditorialHeads || {})[repo] || '',
+        updated_at: new Date().toISOString()
+      }));
+    } catch (_) {}
   }
+};
+
+window.recoverLocalDraft = function(repo) {
+  try {
+    const raw = localStorage.getItem('sister_draft_' + repo);
+    if (!raw) return;
+    let record;
+    try { record = JSON.parse(raw); } catch (_) { record = { content: raw }; }
+    const textarea = document.querySelector('#liveEditorTextarea');
+    if (!textarea || typeof record.content !== 'string') return;
+    textarea.value = record.content;
+    handleEditorInput(record.content, repo);
+    document.querySelector('#divergentDraftNotice')?.remove();
+    showToast('Rascunho local recuperado. Revise antes de salvar no Git.');
+  } catch (_) {}
+};
+
+window.discardLocalDraft = function(repo) {
+  if (!confirm('Descartar definitivamente o rascunho local divergente?')) return;
+  localStorage.removeItem('sister_draft_' + repo);
+  document.querySelector('#divergentDraftNotice')?.remove();
+  showToast('Rascunho local descartado; versão Git mantida.');
+};
+
+window.toggleDraftComparison = function() {
+  const comparison = document.querySelector('#draftComparison');
+  if (!comparison) return;
+  comparison.classList.toggle('hidden');
+  comparison.style.display = comparison.classList.contains('hidden') ? 'none' : 'grid';
 };
 
 window.handleEditorialTransition = async function(repo, nextStage) {
