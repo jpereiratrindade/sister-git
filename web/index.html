@@ -422,9 +422,41 @@
               <span class="badge badge-primary" id="authConnectedRole">Pesquisador</span>
             </div>
           </div>
-          <p class="auth-intro" style="margin-top: 8px;">
-            Sua identidade institucional está vinculada aos commits editoriais e à governança científica no SisTer Git.
-          </p>
+          <!-- PERFIL EDITORIAL CIENTÍFICO (METADADOS ACADÊMICOS) -->
+          <div class="editorial-profile-section" style="margin-top: 14px; padding: 14px; background: var(--surface-alt); border: 1px solid var(--line); border-radius: var(--radius-md);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+              <strong style="font-size: 0.85rem; color: var(--navy);">Perfil Editorial &amp; Identidade Acadêmica</strong>
+              <span class="user-role-pill role-pill-researcher" style="font-size:0.62rem;">SisTer Editorial</span>
+            </div>
+            <p style="font-size: 0.76rem; color: var(--muted); margin: 0 0 10px;">
+              Metadados acadêmicos para proveniência de autoria e avaliação por pares, isolados do Git base.
+            </p>
+            <form id="formEditorialProfile" onsubmit="handleSaveEditorialProfile(event)">
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+                <label class="field-label" style="margin:0;">
+                  <span>ORCID iD</span>
+                  <input type="text" id="profOrcid" placeholder="0000-0002-1825-0097" pattern="[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X]">
+                </label>
+                <label class="field-label" style="margin:0;">
+                  <span>Instituição / Filiação</span>
+                  <input type="text" id="profInstitution" placeholder="Ex: LABECO / Embrapa Pecuária Sul">
+                </label>
+              </div>
+              <label class="field-label" style="margin:0 0 8px;">
+                <span>Áreas de Especialidade / Temas de Pesquisa</span>
+                <input type="text" id="profAreas" placeholder="Ex: Ecologia dos campos, Botânica, Sensoriamento Remoto">
+              </label>
+              <label class="field-label" style="margin:0 0 8px;">
+                <span>Mini-biografia acadêmica</span>
+                <textarea id="profBio" rows="2" placeholder="Síntese da formação e atuação em pesquisa."></textarea>
+              </label>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 6px;">
+                <span id="profFeedback" class="form-feedback hidden" style="margin:0; font-size:0.75rem;"></span>
+                <button type="submit" class="btn-primary" id="btnSaveProfile" style="padding: 5px 14px; font-size: 0.8rem;">Salvar Perfil Editorial ✓</button>
+              </div>
+            </form>
+          </div>
+
           <div id="adminUserManagementBox" class="hidden"
             style="margin-top: 10px; padding: 12px; background: #eaf3fa; border-radius: 8px; border: 1px solid #c2dcf0;">
             <strong style="font-size: 0.82rem; color: var(--navy); display: block; margin-bottom: 4px;">Painel de

@@ -92,6 +92,7 @@ async function updateAuthStatus() {
   if (!sidebarAuth) return;
   try {
     const s = await api('/api/v1/auth/status').catch(() => ({ authenticated: false, auth_required: false, user: null }));
+    const topBtn = document.querySelector('#btnAuthTrigger');
     if (s.authenticated && s.user) {
       currentUser = s.user;
       const name = s.user.name || s.user.email.split('@')[0];
@@ -102,19 +103,40 @@ async function updateAuthStatus() {
         .slice(0, 2)
         .join('')
         .toUpperCase();
+      const isAdmin = s.user.role === 'admin';
+      const roleLabel = isAdmin ? 'ADMIN' : 'PESQUISADOR';
+      const roleClass = isAdmin ? 'role-pill-admin' : 'role-pill-researcher';
+
+      if (topBtn) {
+        topBtn.classList.add('is-authenticated');
+        topBtn.classList.toggle('is-admin', isAdmin);
+        topBtn.innerHTML = `
+          <span class="user-avatar-tiny">${esc(initials)}</span>
+          <span class="topbar-user-name">${esc(name)}</span>
+          <span class="user-role-pill ${roleClass}">${roleLabel}</span>
+        `;
+        topBtn.title = `Conectado como ${esc(s.user.email)} (${isAdmin ? 'Administrador' : 'Pesquisador'})\nClique para gerenciar perfil e conta`;
+      }
 
       sidebarAuth.innerHTML = `
-        <div class="sidebar-user-chip" onclick="openAuthModal()" title="Conectado como ${esc(s.user.email)} (${s.user.role || 'pesquisador'})">
+        <div class="sidebar-user-chip" onclick="openAuthModal()" title="Conectado como ${esc(s.user.email)} (${roleLabel})">
           <div class="user-avatar-sm">${esc(initials)}</div>
           <div class="sidebar-user-details">
             <span class="sidebar-user-name">${esc(name)}</span>
-            <span class="sidebar-user-email">${esc(s.user.email)}</span>
+            <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
+              <span class="user-role-pill ${roleClass}">${roleLabel}</span>
+            </div>
           </div>
           <button type="button" class="btn-auth-action" onclick="event.stopPropagation(); logout()" title="Encerrar sessão autenticada">Sair</button>
         </div>
       `;
     } else {
       currentUser = null;
+      if (topBtn) {
+        topBtn.classList.remove('is-authenticated', 'is-admin');
+        topBtn.innerHTML = `🔒 Entrar`;
+        topBtn.title = `Autenticar no SisTer Git`;
+      }
       sidebarAuth.innerHTML = `
         <div class="auth-badge-status" title="Acesso público somente leitura">
           <span class="dot-anon"></span>
@@ -125,6 +147,12 @@ async function updateAuthStatus() {
     }
   } catch (_) {
     currentUser = null;
+    const topBtn = document.querySelector('#btnAuthTrigger');
+    if (topBtn) {
+      topBtn.classList.remove('is-authenticated', 'is-admin');
+      topBtn.innerHTML = `🔒 Entrar`;
+      topBtn.title = `Autenticar no SisTer Git`;
+    }
     sidebarAuth.innerHTML = `
       <div class="auth-badge-status"><span class="dot-anon"></span><span>Público</span></div>
     `;
@@ -135,6 +163,12 @@ window.logout = async function() {
   await apiPost('/api/v1/auth/logout', {}).catch(() => {});
   setToken('');
   currentUser = null;
+  const topBtn = document.querySelector('#btnAuthTrigger');
+  if (topBtn) {
+    topBtn.classList.remove('is-authenticated', 'is-admin');
+    topBtn.innerHTML = `🔒 Entrar`;
+    topBtn.title = `Autenticar no SisTer Git`;
+  }
   closeModal('modalAuth');
   showToast('Sessão encerrada.');
   await updateAuthStatus();
@@ -1526,6 +1560,13 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
         <strong>${esc(authors)}</strong> · <em>Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)</em>
       </div>
 
+      ${manifest.abstract ? `
+        <div class="doc-abstract-box">
+          <span class="doc-abstract-tag">Resumo / Abstract Institucional</span>
+          <p class="doc-abstract-text">${esc(manifest.abstract)}</p>
+        </div>
+      ` : ''}
+
       <div class="doc-provenance-box">
         <span>Identificador: <strong>${esc(repo)}</strong> (refs/heads/main)</span>
         <span>Commit atual: <code>${esc((edData.head || edData.published_commit || '').substr(0, 10))}</code> · ${formatDate(edData.commit_date)}</span>
@@ -2329,6 +2370,7 @@ window.openAuthModal = function() {
       if (adminBox) {
         adminBox.classList.toggle('hidden', currentUser.role !== 'admin');
       }
+      loadEditorialProfile();
     }
   } else {
     document.querySelector('#authTabsNav')?.classList.remove('hidden');
@@ -2348,6 +2390,58 @@ window.openUsersModal = async function() {
   closeModal('modalAuth');
   openModal('modalUsers');
   await reloadAllowedUsers();
+};
+
+async function loadEditorialProfile() {
+  try {
+    const res = await api('/api/v1/editorial/profile');
+    if (res && res.ok) {
+      const orcid = document.querySelector('#profOrcid');
+      const inst = document.querySelector('#profInstitution');
+      const areas = document.querySelector('#profAreas');
+      const bio = document.querySelector('#profBio');
+      if (orcid) orcid.value = res.orcid || '';
+      if (inst) inst.value = res.institution || '';
+      if (areas) areas.value = res.areas || '';
+      if (bio) bio.value = res.bio || '';
+    }
+  } catch (_) {}
+}
+
+window.handleSaveEditorialProfile = async function(e) {
+  e.preventDefault();
+  const btn = document.querySelector('#btnSaveProfile');
+  const fb = document.querySelector('#profFeedback');
+  const orcid = document.querySelector('#profOrcid')?.value.trim() || '';
+  const institution = document.querySelector('#profInstitution')?.value.trim() || '';
+  const areas = document.querySelector('#profAreas')?.value.trim() || '';
+  const bio = document.querySelector('#profBio')?.value.trim() || '';
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+  }
+  try {
+    await apiPost('/api/v1/editorial/profile', { orcid, institution, areas, bio });
+    showToast('✓ Perfil editorial salvo com sucesso!');
+    if (fb) {
+      fb.textContent = 'Perfil salvo!';
+      fb.className = 'form-feedback success';
+      fb.classList.remove('hidden');
+      setTimeout(() => fb.classList.add('hidden'), 3000);
+    }
+  } catch (err) {
+    if (fb) {
+      fb.textContent = err.message || 'Erro ao salvar perfil';
+      fb.className = 'form-feedback error';
+      fb.classList.remove('hidden');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'Salvar Perfil Editorial ✓';
+    }
+  }
 };
 
 async function reloadAllowedUsers() {

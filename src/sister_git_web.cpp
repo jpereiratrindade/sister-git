@@ -612,6 +612,14 @@ static void init_auth_db() {
       assigned_at TEXT NOT NULL,
       PRIMARY KEY(repo, email)
     );
+    CREATE TABLE IF NOT EXISTS editorial_profiles (
+      email TEXT PRIMARY KEY,
+      orcid TEXT,
+      institution TEXT,
+      bio TEXT,
+      areas TEXT,
+      updated_at TEXT
+    );
   )";
   char *err = nullptr;
   sqlite3_exec(g_db, ddl, nullptr, nullptr, &err);
@@ -906,10 +914,11 @@ static Response create_repo(const std::string &name, const std::string &type, co
   std::string auth_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
 
   if (type == "editorial") {
+    std::string doc_abstract = description.empty() ? "Inicie aqui o resumo do seu artigo ou relatório de pesquisa." : description;
     std::string init_doc = "# " + doc_title + "\n\n"
                            "**" + auth_name + "**  \n"
                            "*Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)*\n\n---\n\n"
-                           "## Resumo\n\nInicie aqui o resumo do seu artigo ou relatório de pesquisa.\n\n---\n\n"
+                           "## Resumo\n\n" + doc_abstract + "\n\n---\n\n"
                            "## 1. Introdução\n\nDescreva a contextualização, o problema ecológico e as hipóteses investigadas.\n\n"
                            "## 2. Metodologia e Delineamento Amostral\n\nDetalhe os procedimentos experimentais, coleta de dados botânicos e análises estatísticas.\n\n"
                            "## 3. Resultados e Discussão\n\nApresente suas evidências empíricas com gráficos, tabelas e referências.\n\n"
@@ -1261,6 +1270,36 @@ static Response route(const std::string &target, const AuthUser &user) {
     return {200, "application/json; charset=utf-8", "{\"ok\":true,\"users\":" + list + "}"};
   }
 
+  if (path == "/api/v1/editorial/profile") {
+    std::string target_email = user.email;
+    if (q.count("email") && !q["email"].empty()) {
+      target_email = q["email"];
+      std::transform(target_email.begin(), target_email.end(), target_email.begin(), [](unsigned char c) { return std::tolower(c); });
+    }
+    std::string orcid = "", institution = "", bio = "", areas = "", updated_at = "";
+    if (g_db && !target_email.empty()) {
+      sqlite3_stmt *stmt = nullptr;
+      const char *sql = "SELECT orcid, institution, bio, areas, updated_at FROM editorial_profiles WHERE email = ?";
+      if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, target_email.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+          const char *o = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+          const char *i = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+          const char *b = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+          const char *a = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 3));
+          const char *u = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 4));
+          if (o) orcid = o;
+          if (i) institution = i;
+          if (b) bio = b;
+          if (a) areas = a;
+          if (u) updated_at = u;
+        }
+        sqlite3_finalize(stmt);
+      }
+    }
+    return {200, "application/json; charset=utf-8", "{\"ok\":true,\"email\":" + json(target_email) + ",\"orcid\":" + json(orcid) + ",\"institution\":" + json(institution) + ",\"bio\":" + json(bio) + ",\"areas\":" + json(areas) + ",\"updated_at\":" + json(updated_at) + "}"};
+  }
+
   if (path == "/api/v1/ha") {
     return {200, "application/json; charset=utf-8", "{\"nodes\":[{\"name\":\"LABECO-SRV\",\"role\":\"git-host\",\"status\":\"active\"},{\"name\":\"Fedora Silverblue\",\"role\":\"replica-node\",\"status\":\"unknown\"}],\"replication\":\"unverified\",\"last_sync\":null}"};
   }
@@ -1511,6 +1550,35 @@ static Response route_post(const std::string &target, const std::string &headers
       }
     }
     return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\"}"};
+  }
+
+  if (target == "/api/v1/editorial/profile") {
+    if (!user.authenticated) return error(401, "Autenticação obrigatória para atualizar perfil editorial");
+    std::string orcid = json_extract(body, "orcid");
+    std::string institution = json_extract(body, "institution");
+    std::string bio = json_extract(body, "bio");
+    std::string areas = json_extract(body, "areas");
+
+    if (g_db) {
+      sqlite3_stmt *stmt = nullptr;
+      const char *sql = "INSERT INTO editorial_profiles(email, orcid, institution, bio, areas, updated_at) "
+                        "VALUES(?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(email) DO UPDATE SET "
+                        "orcid = excluded.orcid, institution = excluded.institution, bio = excluded.bio, "
+                        "areas = excluded.areas, updated_at = excluded.updated_at";
+      if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, user.email.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, orcid.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, institution.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 4, bio.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 5, areas.c_str(), -1, SQLITE_TRANSIENT);
+        std::string now_iso = iso_now();
+        sqlite3_bind_text(stmt, 6, now_iso.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+      }
+    }
+    return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"message\":\"Perfil editorial salvo com sucesso\"}"};
   }
 
   // Protected Write Operations
@@ -2002,6 +2070,38 @@ int main(int argc, char **argv) {
     else if (a == "--smtp-port" && i + 1 < argc) g_smtp.port = std::stoi(argv[++i]);
     else if (a == "--smtp-prompt") smtp_prompt = true;
     else if (a == "--dev-auth") g_smtp.dev_mode = true;
+    else if (a == "--set-admin" && i + 1 < argc) {
+      std::string admin_target = argv[++i];
+      std::transform(admin_target.begin(), admin_target.end(), admin_target.begin(), [](unsigned char c) { return std::tolower(c); });
+      init_auth_db();
+      if (!g_db) {
+        std::cerr << "[ERRO] Não foi possível abrir o banco de dados em " << repo_root << "/.sister-auth.db\n";
+        return 1;
+      }
+      sqlite3_stmt *stmt = nullptr;
+      const char *sql_allowed = "INSERT INTO allowed_users(email, name, role, created_by, created_at) VALUES(?, ?, 'admin', 'cli', datetime('now')) "
+                                "ON CONFLICT(email) DO UPDATE SET role = 'admin'";
+      if (sqlite3_prepare_v2(g_db, sql_allowed, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, admin_target.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, admin_target.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+      }
+      const char *sql_users = "UPDATE users SET role = 'admin' WHERE email = ?";
+      if (sqlite3_prepare_v2(g_db, sql_users, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, admin_target.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+      }
+      const char *sql_sessions = "UPDATE sessions SET role = 'admin' WHERE email = ?";
+      if (sqlite3_prepare_v2(g_db, sql_sessions, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, admin_target.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+      }
+      std::cout << "[OK] Usuário '" << admin_target << "' configurado como 'admin' com sucesso no SisTer Git!\n";
+      return 0;
+    }
     else {
       std::cerr << "Uso: sister-git-web [--bind 0.0.0.0] [--port 8787] [--smtp-user USER] [--smtp-pass SENHA] [--smtp-prompt]\n";
       return 2;

@@ -142,6 +142,12 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/create_ed.json"
 grep -q '"ok":true' "$TMP/create_ed.json"
 grep -q '"type":"editorial"' "$TMP/create_ed.json"
+git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:manuscrito.md' | grep -q 'Artigo sobre ecologia'
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"orcid":"0000-0002-1825-0097","institution":"LABECO / Embrapa","areas":"Ecologia dos campos"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/editorial/profile" | grep -q '"ok":true'
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/editorial/profile" | grep -q '0000-0002-1825-0097'
+"$HERE/build/sister-git-web" --repos "$TMP/repos" --set-admin novo.admin@embrapa.br | grep -q "configurado como 'admin'"
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/repos_metadata.json"
 grep -q '"title":"Ecologia dos Campos"' "$TMP/repos_metadata.json"
 grep -q '"description":"Artigo sobre ecologia"' "$TMP/repos_metadata.json"
