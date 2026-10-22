@@ -1,0 +1,25 @@
+[Unit]
+Description=SisTer Git Web - LABECO
+After=network.target
+
+[Service]
+Type=simple
+User=jpereiratrindade
+Group=jpereiratrindade
+WorkingDirectory=/usr/local/share/sister-git
+EnvironmentFile=-/etc/sister-git-web.env
+
+Environment=SISTER_GIT_ROOT=/srv/git
+Environment=SISTER_GIT_WEB_ROOT=/usr/local/share/sister-git/web
+
+ExecStart=/usr/local/bin/sister-git-web --bind 0.0.0.0 --port 8787
+
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
