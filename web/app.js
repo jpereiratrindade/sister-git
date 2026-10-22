@@ -1132,6 +1132,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   ]);
 
   const manifest = edData.manifest || {};
+  window.sisterEditorialHeads = window.sisterEditorialHeads || {};
+  window.sisterEditorialHeads[repo] = edData.head || '';
   const entries = treeData.entries || [];
   const title = manifest.title || repo;
   const authors = manifest.authors && manifest.authors.length
@@ -1587,8 +1589,10 @@ window.handleSaveManuscript = async function(e, repo, filename) {
       filename,
       content,
       author: author || 'Pesquisador LABECO',
-      message: message || 'Atualização editorial do manuscrito'
+      message: message || 'Atualização editorial do manuscrito',
+      expected_head: (window.sisterEditorialHeads || {})[repo] || ''
     });
+    if (res.commit) window.sisterEditorialHeads[repo] = res.commit;
     localStorage.removeItem('sister_draft_' + repo);
     showToast(`✓ Nova versão salva no Git! Commit: ${res.short_hash || ''}`);
     btn.innerHTML = '✓ Versão Salva!';
@@ -1690,8 +1694,10 @@ window.handleUploadDocument = async function(evt, repo) {
       filename: file.name,
       content_base64: b64,
       commit_msg: message,
-      is_main: isMain
+      is_main: isMain,
+      expected_head: (window.sisterEditorialHeads || {})[repo] || ''
     });
+    if (res.commit) window.sisterEditorialHeads[repo] = res.commit;
 
     if (res && res.error) {
       throw new Error(res.error);

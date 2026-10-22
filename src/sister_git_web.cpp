@@ -728,7 +728,7 @@ static AuthUser authenticate_request(const std::string &headers, const std::stri
 
 struct FileUpdate { std::string filename, content; bool normalize_text = true; };
 
-static Result git_commit_files(const std::string &name, const std::vector<FileUpdate> &files, const std::string &commit_msg, const std::string &author_name, const std::string &author_email) {
+static Result git_commit_files(const std::string &name, const std::vector<FileUpdate> &files, const std::string &commit_msg, const std::string &author_name, const std::string &author_email, const std::string &expected_head = "") {
   if (files.empty()) return {400, "Nenhum arquivo informado para o commit"};
   std::string gd = git_dir(name);
   std::string idx = gd + "/index_ed_" + std::to_string(std::time(nullptr)) + "_" + std::to_string(rand());
@@ -746,6 +746,10 @@ static Result git_commit_files(const std::string &name, const std::vector<FileUp
   if (has_head) {
     parent_commit = head_chk.out;
     while (!parent_commit.empty() && (parent_commit.back() == '\n' || parent_commit.back() == '\r' || parent_commit.back() == ' ')) parent_commit.pop_back();
+    if (!expected_head.empty() && expected_head != parent_commit) {
+      unlink(idx.c_str());
+      return {409, "Conflito de concorrência: a versão informada não é mais a versão atual"};
+    }
     auto rt = run_stdin({"git", "--git-dir=" + gd, "read-tree", "HEAD"}, "", env);
     if (rt.status != 0) { unlink(idx.c_str()); return {rt.status, "Falha ao ler árvore Git atual"}; }
   }
@@ -798,8 +802,8 @@ static Result git_commit_files(const std::string &name, const std::vector<FileUp
   return {0, new_commit};
 }
 
-static Result git_commit_file(const std::string &name, const std::string &filename, const std::string &content, const std::string &commit_msg, const std::string &author_name = "SisTer Editor", const std::string &author_email = "editorial@labeco.invalid", bool normalize_text = true) {
-  return git_commit_files(name, {{filename, content, normalize_text}}, commit_msg, author_name, author_email);
+static Result git_commit_file(const std::string &name, const std::string &filename, const std::string &content, const std::string &commit_msg, const std::string &author_name = "SisTer Editor", const std::string &author_email = "editorial@labeco.invalid", bool normalize_text = true, const std::string &expected_head = "") {
+  return git_commit_files(name, {{filename, content, normalize_text}}, commit_msg, author_name, author_email, expected_head);
 }
 
 static Response create_repo(const std::string &name, const std::string &type, const std::string &visibility, const std::string &title, const std::string &description, const std::string &author, const AuthUser &user) {
@@ -1038,7 +1042,10 @@ static Response editorial(const std::string &name, const AuthUser &user) {
   std::string project_role = user.role == "admin" ? "editor" : (owner == user.email ? "owner" : project_member_role(name, user.email));
   std::string manifest_json = manifest_valid ? manifest_raw : "{}";
   std::string manifest_error = manifest_valid ? "null" : json("Manifesto .sister-editorial.json contém JSON inválido");
-  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
+  auto head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
+  std::string head_sha = head.status == 0 ? head.out : "";
+  while (!head_sha.empty() && std::isspace(static_cast<unsigned char>(head_sha.back()))) head_sha.pop_back();
+  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"head\":" + json(head_sha) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
 }
 
 static Response archive(const std::string &name, const std::map<std::string, std::string> &q) {
@@ -1415,6 +1422,7 @@ static Response route_post(const std::string &target, const std::string &, const
       std::string filename = json_extract(body, "filename");
       std::string content = json_extract(body, "content");
       std::string message = json_extract(body, "message");
+      std::string expected_head = json_extract(body, "expected_head");
       std::string author = json_extract(body, "author");
       if (author.empty()) author = json_extract(body, "author_name");
       if (author.empty()) author = user.name.empty() ? "Pesquisador LABECO" : user.name;
@@ -1422,7 +1430,7 @@ static Response route_post(const std::string &target, const std::string &, const
       if (message.empty()) message = "docs(editorial): update manuscript version";
 
       std::string author_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
-      auto r = git_commit_file(name, filename, content, message, author, author_email);
+      auto r = git_commit_file(name, filename, content, message, author, author_email, true, expected_head);
       if (r.status != 0) return error(r.status == 409 ? 409 : 500, r.out);
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"commit\":" + json(r.out) + ",\"short_hash\":" + json(r.out.substr(0, 7)) + "}"};
     }
@@ -1627,6 +1635,7 @@ static Response route_post(const std::string &target, const std::string &, const
       std::string b64 = json_extract(body, "content_base64");
       if (b64.empty()) b64 = json_extract(body, "content_b64");
       std::string commit_msg = json_extract(body, "commit_msg");
+      std::string expected_head = json_extract(body, "expected_head");
       if (commit_msg.empty()) commit_msg = json_extract(body, "message");
       std::string is_main = json_extract(body, "is_main");
       if (filename.empty() || !valid_path(filename)) return error(400, "Nome de arquivo inválido");
@@ -1655,7 +1664,7 @@ static Response route_post(const std::string &target, const std::string &, const
         updates.push_back({".sister-editorial.json", m, true});
       }
 
-      auto r = git_commit_files(name, updates, commit_msg, author_name, author_email);
+      auto r = git_commit_files(name, updates, commit_msg, author_name, author_email, expected_head);
       if (r.status != 0) return error(r.status == 409 ? 409 : 500, "Falha ao gravar upload atômico: " + r.out);
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"filename\":" + json(filename) + ",\"commit\":" + json(r.out) + "}"};
     }

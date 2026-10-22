@@ -230,6 +230,14 @@ AFTER_UPLOAD="$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)"
 [[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-list --count "$BEFORE_UPLOAD..$AFTER_UPLOAD")" == 1 ]]
 git --git-dir="$TMP/repos/artigo-teste.git" show "$AFTER_UPLOAD:.sister-editorial.json" | grep -q 'artigo-completo.docx'
 
+# Cliente baseado em HEAD antigo recebe 409 e não altera a referência principal.
+[[ "$(curl -s -o "$TMP/stale-write.json" -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d "{\"filename\":\"concorrente.md\",\"content\":\"versão obsoleta\",\"message\":\"gravação concorrente\",\"expected_head\":\"$BEFORE_UPLOAD\"}" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/save")" == 409 ]]
+grep -q 'Conflito de concorrência' "$TMP/stale-write.json"
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)" == "$AFTER_UPLOAD" ]]
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q "\"head\":\"$AFTER_UPLOAD\""
+
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=artigo-completo.docx" > "$TMP/artigo_baixado.docx"
 cmp "$TMP/artigo-original.docx" "$TMP/artigo_baixado.docx"
 [[ "$(sha256sum "$TMP/artigo-original.docx" | cut -d' ' -f1)" == "$(sha256sum "$TMP/artigo_baixado.docx" | cut -d' ' -f1)" ]]
