@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cctype>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
@@ -109,6 +110,134 @@ static std::string json(const std::string &s) {
     }
   }
   return out + "\"";
+}
+
+// Small, dependency-free JSON validator. Editorial manifests are stored inside Git
+// and therefore cannot be trusted to be syntactically valid before embedding them
+// in an API response.
+class JsonValidator {
+ public:
+  explicit JsonValidator(const std::string &input) : input_(input) {}
+
+  bool valid() {
+    skip_ws();
+    if (!value()) return false;
+    skip_ws();
+    return pos_ == input_.size();
+  }
+
+ private:
+  const std::string &input_;
+  size_t pos_ = 0;
+
+  void skip_ws() {
+    while (pos_ < input_.size() && (input_[pos_] == ' ' || input_[pos_] == '\n' ||
+           input_[pos_] == '\r' || input_[pos_] == '\t')) ++pos_;
+  }
+
+  bool consume(char expected) {
+    skip_ws();
+    if (pos_ >= input_.size() || input_[pos_] != expected) return false;
+    ++pos_;
+    return true;
+  }
+
+  bool literal(const char *text) {
+    size_t len = std::strlen(text);
+    if (input_.compare(pos_, len, text) != 0) return false;
+    pos_ += len;
+    return true;
+  }
+
+  bool string() {
+    if (pos_ >= input_.size() || input_[pos_] != '"') return false;
+    ++pos_;
+    while (pos_ < input_.size()) {
+      unsigned char c = input_[pos_++];
+      if (c == '"') return true;
+      if (c < 0x20) return false;
+      if (c != '\\') continue;
+      if (pos_ >= input_.size()) return false;
+      char escaped = input_[pos_++];
+      if (escaped == '"' || escaped == '\\' || escaped == '/' || escaped == 'b' ||
+          escaped == 'f' || escaped == 'n' || escaped == 'r' || escaped == 't') continue;
+      if (escaped != 'u' || pos_ + 4 > input_.size()) return false;
+      for (int i = 0; i < 4; ++i) {
+        if (!std::isxdigit(static_cast<unsigned char>(input_[pos_++]))) return false;
+      }
+    }
+    return false;
+  }
+
+  bool number() {
+    size_t start = pos_;
+    if (pos_ < input_.size() && input_[pos_] == '-') ++pos_;
+    if (pos_ >= input_.size()) return false;
+    if (input_[pos_] == '0') {
+      ++pos_;
+    } else {
+      if (!std::isdigit(static_cast<unsigned char>(input_[pos_]))) return false;
+      while (pos_ < input_.size() && std::isdigit(static_cast<unsigned char>(input_[pos_]))) ++pos_;
+    }
+    if (pos_ < input_.size() && input_[pos_] == '.') {
+      ++pos_;
+      if (pos_ >= input_.size() || !std::isdigit(static_cast<unsigned char>(input_[pos_]))) return false;
+      while (pos_ < input_.size() && std::isdigit(static_cast<unsigned char>(input_[pos_]))) ++pos_;
+    }
+    if (pos_ < input_.size() && (input_[pos_] == 'e' || input_[pos_] == 'E')) {
+      ++pos_;
+      if (pos_ < input_.size() && (input_[pos_] == '+' || input_[pos_] == '-')) ++pos_;
+      if (pos_ >= input_.size() || !std::isdigit(static_cast<unsigned char>(input_[pos_]))) return false;
+      while (pos_ < input_.size() && std::isdigit(static_cast<unsigned char>(input_[pos_]))) ++pos_;
+    }
+    return pos_ > start;
+  }
+
+  bool array() {
+    if (!consume('[')) return false;
+    skip_ws();
+    if (pos_ < input_.size() && input_[pos_] == ']') { ++pos_; return true; }
+    while (value()) {
+      skip_ws();
+      if (pos_ < input_.size() && input_[pos_] == ']') { ++pos_; return true; }
+      if (!consume(',')) return false;
+    }
+    return false;
+  }
+
+  bool object() {
+    if (!consume('{')) return false;
+    skip_ws();
+    if (pos_ < input_.size() && input_[pos_] == '}') { ++pos_; return true; }
+    while (true) {
+      skip_ws();
+      if (!string() || !consume(':') || !value()) return false;
+      skip_ws();
+      if (pos_ < input_.size() && input_[pos_] == '}') { ++pos_; return true; }
+      if (!consume(',')) return false;
+    }
+  }
+
+  bool value() {
+    skip_ws();
+    if (pos_ >= input_.size()) return false;
+    if (input_[pos_] == '"') return string();
+    if (input_[pos_] == '{') return object();
+    if (input_[pos_] == '[') return array();
+    if (input_[pos_] == 't') return literal("true");
+    if (input_[pos_] == 'f') return literal("false");
+    if (input_[pos_] == 'n') return literal("null");
+    return number();
+  }
+};
+
+static bool valid_json(const std::string &input) {
+  return JsonValidator(input).valid();
+}
+
+static bool valid_json_object(const std::string &input) {
+  size_t first = input.find_first_not_of(" \n\r\t");
+  return first != std::string::npos && input[first] == '{' && valid_json(input);
 }
 
 static Result run(const std::vector<std::string> &args, size_t max_out = max_output) {
@@ -805,11 +934,14 @@ static Response editorial(const std::string &name) {
 
   while (!manifest_raw.empty() && (manifest_raw.back() == '\n' || manifest_raw.back() == '\r' || manifest_raw.back() == ' ')) manifest_raw.pop_back();
   if (manifest_raw.empty()) manifest_raw = "{}";
+  bool manifest_valid = valid_json_object(manifest_raw);
 
   std::string is_ed = (repo_type(name) == "editorial" || has_manifest) ? "true" : "false";
   std::string vis = repo_visibility(name);
   std::string owner = repo_owner(name);
-  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_raw + ",\"tags\":" + tags_json + "}"};
+  std::string manifest_json = manifest_valid ? manifest_raw : "{}";
+  std::string manifest_error = manifest_valid ? "null" : json("Manifesto .sister-editorial.json contém JSON inválido");
+  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
 }
 
 static Response archive(const std::string &name, const std::map<std::string, std::string> &q) {
@@ -1229,7 +1361,13 @@ static Response route_post(const std::string &target, const std::string &, const
       } else {
         size_t last_brace = man_text.rfind('}');
         if (last_brace != std::string::npos) {
-          std::string ins = ",\n  \"reviews\": [\n    " + new_rev + "\n  ]\n";
+          size_t prev = last_brace;
+          while (prev > 0 && (man_text[prev - 1] == ' ' || man_text[prev - 1] == '\t' || man_text[prev - 1] == '\r' || man_text[prev - 1] == '\n')) {
+            prev--;
+          }
+          bool is_empty = (prev > 0 && man_text[prev - 1] == '{');
+          std::string comma = is_empty ? "\n" : ",\n";
+          std::string ins = comma + "  \"reviews\": [\n    " + new_rev + "\n  ]\n";
           man_text.insert(last_brace, ins);
         }
       }
