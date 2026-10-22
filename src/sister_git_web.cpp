@@ -883,22 +883,31 @@ static Response blob(const std::string &name, const std::map<std::string, std::s
 static Response compare(const std::string &name, const std::map<std::string, std::string> &q) {
   std::string base = q.count("base") ? q.at("base") : "", head = q.count("head") ? q.at("head") : "";
   if (!valid_revision(base) || !valid_revision(head)) return error(400, "Revisões inválidas");
-  auto r = run({"git", "--git-dir=" + git_dir(name), "diff", "-u", base + "..." + head});
+  std::vector<std::string> args = {"git", "--git-dir=" + git_dir(name), "diff", "-u", base, head};
+  if (q.count("path") && !q.at("path").empty() && valid_path(q.at("path"))) {
+    args.push_back("--");
+    args.push_back(q.at("path"));
+  }
+  auto r = run(args);
   if (r.status) return error(400, "Falha ao calcular diff");
   std::string b = "{\"base\":" + json(base) + ",\"head\":" + json(head) + ",\"files\":[";
   bool first_file = true;
-  std::string cur_path; std::vector<std::pair<std::string, std::string>> cur_lines;
+  std::string cur_path;
+  size_t cur_add = 0, cur_del = 0;
+  std::vector<std::pair<std::string, std::string>> cur_lines;
   auto flush_file = [&]() {
     if (cur_path.empty()) return;
     if (!first_file) b += ',';
     first_file = false;
-    b += "{\"path\":" + json(cur_path) + ",\"lines\":[";
+    b += "{\"path\":" + json(cur_path) + ",\"additions\":" + std::to_string(cur_add) + ",\"deletions\":" + std::to_string(cur_del) + ",\"lines\":[";
     for (size_t i = 0; i < cur_lines.size(); i++) {
       if (i > 0) b += ',';
       b += "{\"type\":" + json(cur_lines[i].first) + ",\"text\":" + json(cur_lines[i].second) + "}";
     }
     b += "]}";
     cur_lines.clear();
+    cur_add = 0;
+    cur_del = 0;
   };
   for (auto &l : lines(r.out)) {
     if (l.rfind("diff --git", 0) == 0) {
@@ -906,8 +915,8 @@ static Response compare(const std::string &name, const std::map<std::string, std
       size_t b_pos = l.find(" b/");
       cur_path = b_pos != std::string::npos ? l.substr(b_pos + 3) : "desconhecido";
     } else if (l.rfind("@@", 0) == 0) cur_lines.push_back({"hunk", l});
-    else if (!l.empty() && l[0] == '+') cur_lines.push_back({"add", l.substr(1)});
-    else if (!l.empty() && l[0] == '-') cur_lines.push_back({"del", l.substr(1)});
+    else if (!l.empty() && l[0] == '+') { cur_lines.push_back({"add", l.substr(1)}); cur_add++; }
+    else if (!l.empty() && l[0] == '-') { cur_lines.push_back({"del", l.substr(1)}); cur_del++; }
     else if (!l.empty() && l[0] == ' ') cur_lines.push_back({"ctx", l.substr(1)});
   }
   flush_file();

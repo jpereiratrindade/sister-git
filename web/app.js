@@ -304,7 +304,10 @@ function parseRoute() {
     return {
       mode: 'editorial-doc',
       repo: segs[1],
-      tab: segs[2] || 'manuscript'
+      tab: segs[2] || 'manuscript',
+      base: q.get('base') || '',
+      head: q.get('head') || '',
+      view: q.get('view') || ''
     };
   }
 
@@ -322,7 +325,8 @@ function parseRoute() {
     ref: q.get('ref') || '',
     path: q.get('path') || '',
     base: q.get('base') || '',
-    head: q.get('head') || ''
+    head: q.get('head') || '',
+    view: q.get('view') || ''
   };
 }
 
@@ -339,7 +343,7 @@ async function render() {
       await renderEditorialDashboard();
     } else if (route.mode === 'editorial-doc') {
       updateNavHighlight('editorial');
-      await renderEditorialDoc(route.repo, route.tab);
+      await renderEditorialDoc(route.repo, route.tab, route);
     } else if (route.mode === 'repos-dashboard') {
       updateNavHighlight('repos');
       await renderReposDashboard();
@@ -773,7 +777,354 @@ function formatLabel(ext) {
   }
 }
 
-async function renderEditorialDoc(repo, tab = 'manuscript') {
+// ============================================================================
+// COMPARAÇÃO DE REVISÕES & DIFF EDITORIAL
+// ============================================================================
+
+window.updateCompareRoute = function(repo, base, head, view, isEditorial) {
+  const v = view || (isEditorial ? 'editorial' : 'unified');
+  if (isEditorial) {
+    location.hash = `#/editorial/${encodeURIComponent(repo)}/diff?base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}&view=${encodeURIComponent(v)}`;
+  } else {
+    location.hash = `#/r/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(base)}&head=${encodeURIComponent(head)}&view=${encodeURIComponent(v)}`;
+  }
+};
+
+window.switchCompareViewMode = function(repo, base, head, view, isEditorial) {
+  window.updateCompareRoute(repo, base, head, view, isEditorial);
+};
+
+window.swapCompareRevisions = function(repo, view, isEditorial) {
+  const b = document.querySelector('#compareBaseSelect')?.value || 'HEAD~1';
+  const h = document.querySelector('#compareHeadSelect')?.value || 'HEAD';
+  window.updateCompareRoute(repo, h, b, view, isEditorial);
+};
+
+function renderEditorialProseDiff(lines) {
+  if (!lines || !lines.length) {
+    return `<div style="color:var(--muted); font-style:italic;">Nenhuma alteração neste documento.</div>`;
+  }
+  let html = '';
+  for (const l of lines) {
+    if (l.type === 'hunk') {
+      html += `<div class="editorial-hunk-divider"><span>Trecho Alterado do Manuscrito</span></div>`;
+    } else if (l.type === 'add') {
+      html += `
+        <div class="editorial-line-block editorial-added">
+          <span style="font-weight:700; font-family:var(--font-sans); font-size:0.7rem; text-transform:uppercase; background:#bbf7d0; color:#14532d; padding:2px 6px; border-radius:3px; margin-right:8px; vertical-align:middle;">+ Inserido</span>
+          <span>${esc(l.text)}</span>
+        </div>`;
+    } else if (l.type === 'del') {
+      html += `
+        <div class="editorial-line-block editorial-deleted">
+          <span style="font-weight:700; font-family:var(--font-sans); font-size:0.7rem; text-transform:uppercase; background:#fecaca; color:#7f1d1d; padding:2px 6px; border-radius:3px; margin-right:8px; vertical-align:middle; text-decoration:none; display:inline-block;">- Removido</span>
+          <span>${esc(l.text)}</span>
+        </div>`;
+    } else {
+      if (!l.text || !l.text.trim()) {
+        html += `<div style="height:12px;"></div>`;
+      } else {
+        html += `<div class="editorial-line-block" style="color:#334155;">${esc(l.text)}</div>`;
+      }
+    }
+  }
+  return html;
+}
+
+function renderSplitDiff(lines, baseLabel, headLabel) {
+  if (!lines || !lines.length) {
+    return `<div style="color:var(--muted); padding:20px; text-align:center;">Sem alterações.</div>`;
+  }
+  const rows = [];
+  let i = 0;
+  while (i < lines.length) {
+    const l = lines[i];
+    if (l.type === 'hunk') {
+      rows.push({ type: 'hunk', text: l.text });
+      i++;
+    } else if (l.type === 'ctx') {
+      rows.push({ type: 'ctx', left: l.text, right: l.text });
+      i++;
+    } else {
+      const dels = [];
+      const adds = [];
+      while (i < lines.length && (lines[i].type === 'del' || lines[i].type === 'add')) {
+        if (lines[i].type === 'del') dels.push(lines[i].text);
+        else adds.push(lines[i].text);
+        i++;
+      }
+      const maxLen = Math.max(dels.length, adds.length);
+      for (let k = 0; k < maxLen; k++) {
+        rows.push({
+          type: 'change',
+          left: k < dels.length ? dels[k] : null,
+          right: k < adds.length ? adds[k] : null
+        });
+      }
+    }
+  }
+
+  return `
+    <table class="diff-split-table">
+      <thead>
+        <tr>
+          <th>Versão Base: <code>${esc(baseLabel)}</code></th>
+          <th>Versão Alvo: <code>${esc(headLabel)}</code></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(r => {
+          if (r.type === 'hunk') {
+            return `<tr><td colspan="2" class="diff-hunk" style="padding:6px 12px; font-weight:600;">${esc(r.text)}</td></tr>`;
+          }
+          if (r.type === 'ctx') {
+            return `<tr><td style="color:#64748b;">${esc(r.left)}</td><td style="color:#64748b;">${esc(r.right)}</td></tr>`;
+          }
+          const leftCls = r.left !== null ? 'split-del' : 'split-empty';
+          const rightCls = r.right !== null ? 'split-add' : 'split-empty';
+          return `
+            <tr>
+              <td class="${leftCls}">${r.left !== null ? esc(r.left) : ''}</td>
+              <td class="${rightCls}">${r.right !== null ? esc(r.right) : ''}</td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderUnifiedDiff(lines) {
+  return `
+    <div>
+      ${lines.map(l => {
+        const cls = l.type === 'add' ? 'diff-line-add' : (l.type === 'del' ? 'diff-line-del' : (l.type === 'hunk' ? 'diff-hunk' : ''));
+        return `<div class="diff-line ${cls}">${esc(l.text)}</div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, mainDoc }) {
+  const [commitsData, refsData] = await Promise.all([
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/commits?ref=HEAD`).catch(() => ({ commits: [] })),
+    api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`).catch(() => ({ branches: [], tags: [] }))
+  ]);
+
+  const commits = commitsData.commits || [];
+  const tags = refsData.tags || [];
+
+  const rootCommit = commits.length > 0 ? commits[commits.length - 1] : null;
+
+  let effectiveBase = base;
+  let effectiveHead = head || 'HEAD';
+
+  if (!effectiveBase) {
+    if (isEditorial && rootCommit && commits.length > 1) {
+      effectiveBase = rootCommit.short_hash;
+    } else {
+      effectiveBase = 'HEAD~1';
+    }
+  }
+
+  const effectiveView = viewMode || (isEditorial ? 'editorial' : 'unified');
+
+  const diffData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(effectiveBase)}&head=${encodeURIComponent(effectiveHead)}`).catch(() => ({ files: [] }));
+  const files = diffData.files || [];
+
+  const isMetaFile = (p) => p === '.sister-editorial.json' || p === '.gitignore';
+  const docFiles = files.filter(f => !isMetaFile(f.path));
+  const metaFiles = files.filter(f => isMetaFile(f.path));
+
+  docFiles.sort((a, b) => {
+    if (a.path === mainDoc) return -1;
+    if (b.path === mainDoc) return 1;
+    return a.path.localeCompare(b.path);
+  });
+
+  const totalAdd = files.reduce((acc, f) => acc + (f.additions || 0), 0);
+  const totalDel = files.reduce((acc, f) => acc + (f.deletions || 0), 0);
+
+  let html = `
+    <div class="compare-control-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:14px;">
+        <div>
+          <div style="font-size:0.95rem; font-weight:700; color:var(--navy); display:flex; align-items:center; gap:8px;">
+            <span>⇄ Comparador de Versões e Auditoria de Texto</span>
+            ${isEditorial ? '<span class="badge-edition-tag">Espaço Editorial</span>' : ''}
+          </div>
+          <div style="font-size:0.78rem; color:var(--muted); margin-top:2px;">
+            Comparando <strong>${esc(effectiveBase)}</strong> ➔ <strong>${esc(effectiveHead)}</strong> · ${files.length} arquivo(s) modificado(s) (${totalAdd} adições, ${totalDel} remoções)
+          </div>
+        </div>
+
+        <div class="compare-view-modes">
+          <button type="button" class="compare-mode-btn ${effectiveView === 'editorial' ? 'active' : ''}" onclick="switchCompareViewMode('${esc(repo)}', '${esc(effectiveBase)}', '${esc(effectiveHead)}', 'editorial', ${isEditorial})">
+            👁️ Visual Editorial
+          </button>
+          <button type="button" class="compare-mode-btn ${effectiveView === 'split' ? 'active' : ''}" onclick="switchCompareViewMode('${esc(repo)}', '${esc(effectiveBase)}', '${esc(effectiveHead)}', 'split', ${isEditorial})">
+            ⚖ Lado a Lado
+          </button>
+          <button type="button" class="compare-mode-btn ${effectiveView === 'unified' ? 'active' : ''}" onclick="switchCompareViewMode('${esc(repo)}', '${esc(effectiveBase)}', '${esc(effectiveHead)}', 'unified', ${isEditorial})">
+            💻 Patch Git
+          </button>
+        </div>
+      </div>
+
+      <div class="compare-selector-row">
+        <div style="flex:1; min-width:240px;">
+          <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--muted); margin-bottom:4px;">
+            VERSÃO BASE (ORIGEM / ANTERIOR):
+          </label>
+          <select id="compareBaseSelect" class="compare-rev-select" onchange="updateCompareRoute('${esc(repo)}', this.value, document.querySelector('#compareHeadSelect').value, '${esc(effectiveView)}', ${isEditorial})">
+            <optgroup label="Referências Especiais">
+              <option value="HEAD~1" ${effectiveBase === 'HEAD~1' ? 'selected' : ''}>HEAD~1 (Penúltimo commit)</option>
+              ${rootCommit ? `<option value="${esc(rootCommit.short_hash)}" ${effectiveBase === rootCommit.short_hash || effectiveBase === rootCommit.hash ? 'selected' : ''}>Origem / Primeiro Commit (${esc(rootCommit.short_hash)})</option>` : ''}
+            </optgroup>
+            ${tags.length ? `
+              <optgroup label="Tags &amp; Edições Publicadas">
+                ${tags.map(t => `<option value="${esc(t.name)}" ${effectiveBase === t.name ? 'selected' : ''}>🏷️ ${esc(t.name)}</option>`).join('')}
+              </optgroup>
+            ` : ''}
+            <optgroup label="Histórico de Commits Recentes">
+              ${commits.map(c => `
+                <option value="${esc(c.short_hash)}" ${effectiveBase === c.short_hash || effectiveBase === c.hash ? 'selected' : ''}>
+                  ${esc(c.short_hash)} · ${esc(c.subject.substr(0, 48))} (${timeAgo(c.date)})
+                </option>
+              `).join('')}
+            </optgroup>
+          </select>
+        </div>
+
+        <button type="button" class="compare-swap-btn" title="Inverter revisões" onclick="swapCompareRevisions('${esc(repo)}', '${esc(effectiveView)}', ${isEditorial})">
+          ⇄
+        </button>
+
+        <div style="flex:1; min-width:240px;">
+          <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--muted); margin-bottom:4px;">
+            VERSÃO ALVO (DESTINO / ATUAL):
+          </label>
+          <select id="compareHeadSelect" class="compare-rev-select" onchange="updateCompareRoute('${esc(repo)}', document.querySelector('#compareBaseSelect').value, this.value, '${esc(effectiveView)}', ${isEditorial})">
+            <optgroup label="Referências Especiais">
+              <option value="HEAD" ${effectiveHead === 'HEAD' ? 'selected' : ''}>HEAD (Versão Mais Recente)</option>
+            </optgroup>
+            ${tags.length ? `
+              <optgroup label="Tags &amp; Edições Publicadas">
+                ${tags.map(t => `<option value="${esc(t.name)}" ${effectiveHead === t.name ? 'selected' : ''}>🏷️ ${esc(t.name)}</option>`).join('')}
+              </optgroup>
+            ` : ''}
+            <optgroup label="Histórico de Commits">
+              ${commits.map(c => `
+                <option value="${esc(c.short_hash)}" ${effectiveHead === c.short_hash || effectiveHead === c.hash ? 'selected' : ''}>
+                  ${esc(c.short_hash)} · ${esc(c.subject.substr(0, 48))} (${timeAgo(c.date)})
+                </option>
+              `).join('')}
+            </optgroup>
+          </select>
+        </div>
+      </div>
+
+      <div class="compare-shortcuts-row">
+        <span style="font-weight:600;">Atalhos rápidos:</span>
+        ${rootCommit ? `
+          <button type="button" class="compare-shortcut-btn" onclick="updateCompareRoute('${esc(repo)}', '${esc(rootCommit.short_hash)}', 'HEAD', '${esc(effectiveView)}', ${isEditorial})">
+            📌 Origem ➔ Versão Atual
+          </button>
+        ` : ''}
+        ${commits.length > 1 ? `
+          <button type="button" class="compare-shortcut-btn" onclick="updateCompareRoute('${esc(repo)}', 'HEAD~1', 'HEAD', '${esc(effectiveView)}', ${isEditorial})">
+            ⏱️ Último Commit (HEAD~1 ➔ HEAD)
+          </button>
+        ` : ''}
+        ${tags.map(t => `
+          <button type="button" class="compare-shortcut-btn" onclick="updateCompareRoute('${esc(repo)}', '${esc(t.name)}', 'HEAD', '${esc(effectiveView)}', ${isEditorial})">
+            🏷️ ${esc(t.name)} ➔ Atual
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+
+  if (!files.length) {
+    html += `
+      <div class="empty-state" style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:40px; text-align:center;">
+        <div style="font-size:2rem; margin-bottom:8px;">✓</div>
+        <h3 style="color:var(--navy); margin:0 0 6px;">Nenhuma diferença encontrada</h3>
+        <p style="color:var(--muted); margin:0;">Os conteúdos de <code>${esc(effectiveBase)}</code> e <code>${esc(effectiveHead)}</code> são exatamente idênticos.</p>
+      </div>
+    `;
+    return html;
+  }
+
+  for (const f of docFiles) {
+    if (effectiveView === 'editorial') {
+      html += `
+        <div class="editorial-diff-card">
+          <div class="editorial-diff-header">
+            <div class="editorial-diff-doc-title">
+              <span>📄</span>
+              <span>${esc(f.path)}</span>
+              ${f.path === mainDoc ? '<span class="badge-edition-tag">Documento Principal</span>' : ''}
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="editorial-diff-stat-add">+${f.additions || 0} adições</span>
+              <span class="editorial-diff-stat-del">-${f.deletions || 0} remoções</span>
+            </div>
+          </div>
+          <div class="editorial-prose-container">
+            ${renderEditorialProseDiff(f.lines)}
+          </div>
+        </div>
+      `;
+    } else if (effectiveView === 'split') {
+      html += `
+        <div class="diff-box">
+          <div class="diff-file-head" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>📄 ${esc(f.path)} ${f.path === mainDoc ? '<span class="badge-edition-tag">Documento Principal</span>' : ''}</span>
+            <span style="font-size:0.75rem;"><strong style="color:var(--diff-add-text);">+${f.additions || 0}</strong> / <strong style="color:var(--diff-del-text);">-${f.deletions || 0}</strong></span>
+          </div>
+          ${renderSplitDiff(f.lines, effectiveBase, effectiveHead)}
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="diff-box">
+          <div class="diff-file-head" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>${esc(f.path)}</span>
+            <span style="font-size:0.75rem;"><strong style="color:var(--diff-add-text);">+${f.additions || 0}</strong> / <strong style="color:var(--diff-del-text);">-${f.deletions || 0}</strong></span>
+          </div>
+          ${renderUnifiedDiff(f.lines)}
+        </div>
+      `;
+    }
+  }
+
+  for (const f of metaFiles) {
+    html += `
+      <details class="diff-box" style="margin-top:20px;">
+        <summary class="metadata-diff-summary">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span>⚙</span>
+            <strong>Metadados do Sistema (${esc(f.path)})</strong>
+            <span style="font-size:0.75rem; color:var(--muted);">(Arquivo de infraestrutura e manifesto editorial)</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span class="editorial-diff-stat-add">+${f.additions || 0}</span>
+            <span class="editorial-diff-stat-del">-${f.deletions || 0}</span>
+            <span style="font-size:0.78rem; color:var(--blue); font-weight:600;">Ver detalhes técnicos ▾</span>
+          </div>
+        </summary>
+        <div style="background:#f8fafc; border-top:1px solid var(--line); padding:10px 0;">
+          ${renderUnifiedDiff(f.lines)}
+        </div>
+      </details>
+    `;
+  }
+
+  return html;
+}
+
+async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   crumbCurrent.innerHTML = `<a href="#/editorial">Espaço Editorial</a> / <strong>${esc(repo)}</strong>`;
 
   const [edData, treeData, refsData] = await Promise.all([
@@ -846,6 +1197,15 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
             📤 Enviar Nova Versão (.docx, .odt...)
           </a>
         </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:var(--radius-md); padding:10px 16px; margin-bottom:16px; font-size:0.83rem; flex-wrap:wrap; gap:8px;">
+        <span style="color:#166534;">
+          <strong>Auditoria Editorial:</strong> Deseja acompanhar as mudanças de redação, inclusões e correções entre versões?
+        </span>
+        <a href="#/editorial/${encodeURIComponent(repo)}/diff" class="btn-cancel" style="background:#fff; color:#166534; border-color:#86efac; font-size:0.78rem; padding:4px 10px; text-decoration:none; font-weight:600;">
+          ⇄ Comparar Alterações do Manuscrito
+        </a>
       </div>
 
       ${isTextDoc && blobData && !blobData.binary ? `
@@ -1084,6 +1444,15 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
         `}
       </div>
     `;
+  } else if (tab === 'diff') {
+    tabContent = await buildCompareViewHtml({
+      repo,
+      base: options.base,
+      head: options.head,
+      viewMode: options.view,
+      isEditorial: true,
+      mainDoc
+    });
   }
 
   app.innerHTML = `
@@ -1111,6 +1480,9 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
       <a href="#/editorial/${encodeURIComponent(repo)}/manuscript" class="doc-tab ${tab === 'manuscript' ? 'active' : ''}">
         <span>📖 Manuscrito &amp; Leitura</span>
       </a>
+      <a href="#/editorial/${encodeURIComponent(repo)}/diff" class="doc-tab ${tab === 'diff' ? 'active' : ''}">
+        <span>⇄ Comparar Versões</span>
+      </a>
       <a href="#/editorial/${encodeURIComponent(repo)}/upload" class="doc-tab ${tab === 'upload' ? 'active' : ''}">
         <span>📤 Upload &amp; Arquivos</span>
         <span class="tab-badge-count">${entries.length}</span>
@@ -1124,9 +1496,6 @@ async function renderEditorialDoc(repo, tab = 'manuscript') {
       </a>
       <a href="#/editorial/${encodeURIComponent(repo)}/publish" class="doc-tab ${tab === 'publish' ? 'active' : ''}">
         <span>🚀 Edições &amp; Publicação</span>
-        <span class="tab-badge-count">${editions.length}</span>
-      </a>
-    </nav>
         <span class="tab-badge-count">${editions.length}</span>
       </a>
     </nav>
@@ -1394,6 +1763,7 @@ async function renderReposDashboard() {
 
 async function renderRepoCode(route) {
   const { repo, tab, ref, path, base, head } = route;
+  const rInfo = allReposCache.find(r => r.name === repo) || {};
   crumbCurrent.innerHTML = `<a href="#/repos">Repositórios</a> / <strong>${esc(repo)}</strong>`;
 
   const [refsData, treeData] = await Promise.all([
@@ -1510,29 +1880,16 @@ async function renderRepoCode(route) {
       </div>
     `;
   } else if (tab === 'compare') {
-    const b = base || 'HEAD~1';
-    const h = head || 'HEAD';
-    const diffData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(b)}&head=${encodeURIComponent(h)}`).catch(() => ({ files: [] }));
-    const files = diffData.files || [];
-    innerContent = `
-      <div style="margin-bottom:16px;">
-        <span style="font-size:0.9rem; font-weight:700; color:var(--navy);">Comparando ${esc(b)} ➔ ${esc(h)} (${diffData.total_files || files.length} arquivos alterados)</span>
-      </div>
-      ${files.map(f => `
-        <div class="diff-box">
-          <div class="diff-file-head">${esc(f.path)}</div>
-          <div>
-            ${f.lines.map(l => {
-              const cls = l.type === 'add' ? 'diff-line-add' : (l.type === 'del' ? 'diff-line-del' : (l.type === 'hunk' ? 'diff-hunk' : ''));
-              return `<div class="diff-line ${cls}">${esc(l.text)}</div>`;
-            }).join('')}
-          </div>
-        </div>
-      `).join('')}
-    `;
+    const isEd = rInfo.type === 'editorial';
+    innerContent = await buildCompareViewHtml({
+      repo,
+      base,
+      head,
+      viewMode: route.view,
+      isEditorial: isEd,
+      mainDoc: ''
+    });
   }
-
-  const rInfo = allReposCache.find(r => r.name === repo) || {};
 
   app.innerHTML = `
     <header class="editorial-doc-header" style="padding:20px 24px;">
