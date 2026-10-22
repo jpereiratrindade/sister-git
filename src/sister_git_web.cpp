@@ -361,6 +361,41 @@ static bool valid_revision(const std::string &rev) {
   return true;
 }
 
+static bool ensure_editorial_push_guard(const std::string &name, std::string &error_message) {
+  const std::string marker = "# sister-git-managed-editorial-guard-v1";
+  const std::string hook = git_dir(name) + "/hooks/pre-receive";
+  if (fs::exists(hook)) {
+    std::ifstream existing(hook, std::ios::binary);
+    std::string content((std::istreambuf_iterator<char>(existing)), std::istreambuf_iterator<char>());
+    if (content.find(marker) == std::string::npos) {
+      error_message = "Hook pre-receive existente não gerenciado em " + hook;
+      return false;
+    }
+  }
+  const std::string script =
+      "#!/usr/bin/env bash\n" + marker + "\n"
+      "set -euo pipefail\n"
+      "while read -r old_sha new_sha ref_name; do\n"
+      "  case \"$ref_name\" in\n"
+      "    refs/heads/main|refs/tags/ed/*)\n"
+      "      echo '[SISTER] Ref editorial protegida; use o fluxo web autenticado.' >&2\n"
+      "      exit 1\n"
+      "      ;;\n"
+      "  esac\n"
+      "done\n";
+  const std::string temp = hook + ".tmp";
+  {
+    std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+    if (!out || !(out << script)) { error_message = "Falha ao gravar proteção editorial"; return false; }
+  }
+  if (chmod(temp.c_str(), 0755) != 0 || rename(temp.c_str(), hook.c_str()) != 0) {
+    unlink(temp.c_str());
+    error_message = "Falha ao ativar proteção editorial em " + hook;
+    return false;
+  }
+  return true;
+}
+
 static bool valid_path(const std::string &p) {
   if (p.find("..") != std::string::npos || (!p.empty() && p[0] == '/')) return false;
   for (char c : p) if (c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') return false;
@@ -826,6 +861,10 @@ static Response create_repo(const std::string &name, const std::string &type, co
   run({"git", "--git-dir=" + gd, "config", "sister.visibility", visibility == "private" ? "private" : "public"});
   if (!user.email.empty()) {
     run({"git", "--git-dir=" + gd, "config", "sister.owner", user.email});
+  }
+  if (type == "editorial") {
+    std::string guard_error;
+    if (!ensure_editorial_push_guard(name, guard_error)) return error(500, guard_error);
   }
 
   std::string doc_title = title.empty() ? name : title;
@@ -1945,6 +1984,19 @@ int main(int argc, char **argv) {
 
   // Initialize SQLite Authentication DB
   init_auth_db();
+
+  std::error_code guard_ec;
+  for (const auto &entry : fs::directory_iterator(repo_root, guard_ec)) {
+    std::string file = entry.path().filename().string();
+    if (file.size() <= 4 || file.substr(file.size() - 4) != ".git") continue;
+    std::string name = file.substr(0, file.size() - 4);
+    if (!is_repo(name) || repo_type(name) != "editorial") continue;
+    std::string guard_error;
+    if (!ensure_editorial_push_guard(name, guard_error)) {
+      std::cerr << "[ERRO] Governança Git editorial não protegida: " << guard_error << "\n";
+      return 1;
+    }
+  }
 
   signal(SIGPIPE, SIG_IGN);
   int s = socket(AF_INET, SOCK_STREAM, 0), one = 1;

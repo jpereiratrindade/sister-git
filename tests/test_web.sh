@@ -144,6 +144,14 @@ grep -q '"title":"Ecologia dos Campos"' "$TMP/repos_metadata.json"
 grep -q '"description":"Artigo sobre ecologia"' "$TMP/repos_metadata.json"
 grep -q '"current_stage":"draft"' "$TMP/repos_metadata.json"
 grep -q '"editorial_tags":0' "$TMP/repos_metadata.json"
+git clone -q "$TMP/repos/artigo-teste.git" "$TMP/direct-push"
+git -C "$TMP/direct-push" config user.name 'Tentativa Direta'
+git -C "$TMP/direct-push" config user.email 'direto@example.invalid'
+printf '\nAlteração fora da governança.\n' >> "$TMP/direct-push/manuscrito.md"
+git -C "$TMP/direct-push" add manuscrito.md
+git -C "$TMP/direct-push" commit -qm 'bypass por push direto'
+if git -C "$TMP/direct-push" push origin main >"$TMP/direct-push.log" 2>&1; then echo '[ERRO] push direto alterou main editorial' >&2; exit 1; fi
+grep -q 'Ref editorial protegida' "$TMP/direct-push.log"
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"email":"editor@embrapa.br","role":"editor"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/assign-member" | grep -q '"role":"editor"'
