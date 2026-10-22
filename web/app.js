@@ -681,7 +681,7 @@ function renderEditorialCard(r) {
     : `<span class="badge-stage stage-draft">${esc(cardStageLabels[r.current_stage] || 'Rascunho')}</span>`;
 
   const lastCommitInfo = r.last_commit
-    ? `Versão salva ${timeAgo(r.last_commit.date)} por <strong>${esc(r.last_commit.author)}</strong>`
+    ? `Commit em <strong>${formatDate(r.last_commit.date)}</strong> (${timeAgo(r.last_commit.date)}) por <strong>${esc(r.last_commit.author)}</strong>`
     : 'Aguardando primeiro manuscrito';
 
   return `
@@ -1528,6 +1528,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
 
       <div class="doc-provenance-box">
         <span>Identificador: <strong>${esc(repo)}</strong> (refs/heads/main)</span>
+        <span>Commit atual: <code>${esc((edData.head || edData.published_commit || '').substr(0, 10))}</code> · ${formatDate(edData.commit_date)}</span>
         <span>Código Git: <a href="#/r/${encodeURIComponent(repo)}/code" style="color:var(--blue); text-decoration:underline;">Ver arquivos brutos ➔</a></span>
         ${transitionButtons ? `<span style="display:flex; gap:8px; flex-wrap:wrap;">${transitionButtons}</span>` : ''}
       </div>

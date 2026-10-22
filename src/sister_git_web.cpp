@@ -1142,11 +1142,14 @@ static Response editorial(const std::string &name, const AuthUser &user) {
   auto head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", manifest_ref});
   std::string head_sha = head.status == 0 ? head.out : "";
   while (!head_sha.empty() && std::isspace(static_cast<unsigned char>(head_sha.back()))) head_sha.pop_back();
+  auto commit_date_result = run({"git", "--git-dir=" + git_dir(name), "show", "-s", "--format=%aI", manifest_ref});
+  std::string commit_date = commit_date_result.status == 0 ? commit_date_result.out : "";
+  while (!commit_date.empty() && std::isspace(static_cast<unsigned char>(commit_date.back()))) commit_date.pop_back();
   if (!user.authenticated) {
-    return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"published_commit\":" + json(head_sha) + ",\"is_editorial\":true,\"manifest\":" + manifest_json + ",\"tags\":" + tags_json + "}"};
+    return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"published_commit\":" + json(head_sha) + ",\"commit_date\":" + json(commit_date) + ",\"is_editorial\":true,\"manifest\":" + manifest_json + ",\"tags\":" + tags_json + "}"};
   }
   bool migration_required = manifest_valid && json_extract(manifest_raw, "schema_version") != "1";
-  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"head\":" + json(head_sha) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"migration_required\":" + (migration_required ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
+  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"head\":" + json(head_sha) + ",\"commit_date\":" + json(commit_date) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"migration_required\":" + (migration_required ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
 }
 
 static Response archive(const std::string &name, const std::map<std::string, std::string> &q) {

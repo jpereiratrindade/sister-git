@@ -193,6 +193,7 @@ MANIFEST_B64="$(printf '{\"current_stage\":\"accepted\"}' | base64 -w0)"
 # 2. Verifica se manuscrito e manifesto foram criados no repositório bare
 curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/blob?ref=main&path=manuscrito.md" | grep -q 'Ecologia dos Campos'
 curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q '"is_editorial":true'
+curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -Eq '"commit_date":"[0-9]{4}-[0-9]{2}-[0-9]{2}T'
 
 # 3. Salvar nova versão do manuscrito
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
