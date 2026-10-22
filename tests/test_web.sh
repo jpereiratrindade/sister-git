@@ -186,6 +186,25 @@ grep -q '"ok":true' "$TMP/pub_ed.json"
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | python3 -m json.tool | grep -q 'ed/v1.0-publicado'
 git --git-dir="$TMP/repos/artigo-teste.git" tag -l | grep -q 'ed/v1.0-publicado'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"current_stage": "published"'
+git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"editions"'
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"tag_name":"ed/v1.0-publicado","notes":"Publicação da primeira edição com DOI e W3C PROV"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish" | grep -q '"idempotent":true'
+[[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"tag_name":"ed/v1.0-publicado","notes":"metadados conflitantes"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/publish")" == 409 ]]
+
+# Nova edição evolui HEAD sem alterar conteúdo da tag publicada.
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"to":"draft","reason":"Início da segunda edição"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/transition" | grep -q '"to":"draft"'
+curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
+  -d '{"content":"# Segunda edição\n\nConteúdo posterior à publicação.","message":"Inicia segunda edição"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial/save" >/dev/null
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?ref=ed%2Fv1.0-publicado&path=manuscrito.md" > "$TMP/manuscrito-publicado.md"
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?ref=HEAD&path=manuscrito.md" > "$TMP/manuscrito-head.md"
+grep -q 'Texto atualizado na revisão' "$TMP/manuscrito-publicado.md"
+grep -q 'Segunda edição' "$TMP/manuscrito-head.md"
 
 # 6. Testar download de arquivo compactado (ZIP e TAR.GZ)
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?format=zip" > "$TMP/artigo.zip"
@@ -208,6 +227,13 @@ git --git-dir="$TMP/repos/artigo-teste.git" show "$AFTER_UPLOAD:.sister-editoria
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=artigo-completo.docx" > "$TMP/artigo_baixado.docx"
 cmp "$TMP/artigo-original.docx" "$TMP/artigo_baixado.docx"
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/editorial" | grep -q 'artigo-completo.docx'
+curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?ref=ed%2Fv1.0-publicado&format=zip" > "$TMP/edicao-publicada.zip"
+python3 - "$TMP/edicao-publicada.zip" <<'PY'
+import sys, zipfile
+names = zipfile.ZipFile(sys.argv[1]).namelist()
+assert any(name.endswith('/manuscrito.md') for name in names)
+assert not any(name.endswith('/artigo-completo.docx') for name in names)
+PY
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"filename":"corrompido.pdf","content_base64":"%%%INVALIDO%%%","commit_msg":"deve falhar"}' \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload")" == 400 ]]

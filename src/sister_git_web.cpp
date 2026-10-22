@@ -1463,6 +1463,7 @@ static Response route_post(const std::string &target, const std::string &, const
         (admin && current == "in_review" && (next == "revision_required" || next == "accepted" || next == "rejected")) ||
         (current == "revision_required" && next == "resubmitted") ||
         (admin && current == "resubmitted" && next == "in_review") ||
+        (current == "published" && next == "draft") ||
         ((current == "draft" || current == "submitted" || current == "revision_required") && next == "withdrawn");
       if (!allowed) return error(409, "Transição editorial inválida: " + current + " -> " + next);
       if ((next == "in_review" || next == "accepted" || next == "rejected" || next == "revision_required") && !admin) {
@@ -1571,17 +1572,40 @@ static Response route_post(const std::string &target, const std::string &, const
       std::string title = json_extract(body, "title");
       std::string notes = json_extract(body, "notes");
       if (tag.rfind("ed/", 0) != 0 || !valid_revision(tag)) return error(400, "Tag editorial deve seguir ed/vX.Y");
+      if (title.empty()) title = tag;
+
+      auto existing_tag = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "--verify", tag + "^{commit}"});
+      if (existing_tag.status == 0) {
+        std::string commit = existing_tag.out;
+        while (!commit.empty() && std::isspace(static_cast<unsigned char>(commit.back()))) commit.pop_back();
+        auto tagged_manifest = run({"git", "--git-dir=" + git_dir(name), "show", tag + ":.sister-editorial.json"});
+        if (tagged_manifest.status == 0 && valid_json_object(tagged_manifest.out) && json_extract(tagged_manifest.out, "current_stage") == "published" && tagged_manifest.out.find(json(tag)) != std::string::npos && tagged_manifest.out.find(json(title)) != std::string::npos && tagged_manifest.out.find(json(notes)) != std::string::npos) {
+          return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"idempotent\":true,\"tag\":" + json(tag) + ",\"commit\":" + json(commit) + "}"};
+        }
+        return error(409, "Tag editorial já existe, mas não representa esta publicação");
+      }
 
       auto cur_man = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
       std::string man_text = cur_man.status == 0 ? cur_man.out : "{}";
       if (!valid_json_object(man_text)) return error(409, "Manifesto editorial ausente ou inválido");
-      if (json_extract(man_text, "current_stage") != "accepted") return error(409, "Publicação exige estado editorial accepted");
+      std::string current_stage = json_extract(man_text, "current_stage");
+      if (current_stage == "published" && man_text.find(json(tag)) != std::string::npos) {
+        auto head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
+        std::string commit = head.out;
+        while (!commit.empty() && std::isspace(static_cast<unsigned char>(commit.back()))) commit.pop_back();
+        auto recovered_tag = run({"git", "--git-dir=" + git_dir(name), "tag", "-a", tag, commit, "-m", title + " - " + notes});
+        if (recovered_tag.status != 0) return error(500, "Falha ao recuperar tag da publicação: " + recovered_tag.out);
+        return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"recovered\":true,\"tag\":" + json(tag) + ",\"commit\":" + json(commit) + "}"};
+      }
+      if (current_stage != "accepted") return error(409, "Publicação exige estado editorial accepted");
       if (!json_replace_string(man_text, "current_stage", "published")) return error(409, "Campo current_stage ausente ou inválido");
       auto accepted_head = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "HEAD"});
       std::string source_commit = accepted_head.out;
       while (!source_commit.empty() && std::isspace(static_cast<unsigned char>(source_commit.back()))) source_commit.pop_back();
       std::string publish_event = "{\"from\":\"accepted\",\"to\":\"published\",\"actor\":" + json(user.email) + ",\"date\":" + json(iso_now()) + ",\"reason\":" + json(notes) + ",\"source_commit\":" + json(source_commit) + "}";
       if (!json_append_object(man_text, "transitions", publish_event)) return error(409, "Falha ao registrar transição de publicação");
+      std::string edition = "{\"tag\":" + json(tag) + ",\"title\":" + json(title) + ",\"notes\":" + json(notes) + ",\"publisher\":" + json(user.email) + ",\"date\":" + json(iso_now()) + "}";
+      if (!json_append_object(man_text, "editions", edition)) return error(409, "Falha ao registrar metadados da edição");
 
       std::string auth_name = user.name.empty() ? "SisTer Editor" : user.name;
       std::string auth_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;

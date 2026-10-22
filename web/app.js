@@ -1180,7 +1180,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
     in_review: currentUser.role === 'admin' ? `<button class="btn-cancel" onclick="handleEditorialTransition('${esc(repo)}','revision_required')">Solicitar revisões</button><button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','accepted')">Aceitar manuscrito</button><button class="btn-cancel" onclick="handleEditorialTransition('${esc(repo)}','rejected')">Rejeitar</button>` : '',
     revision_required: `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','resubmitted')">Ressubmeter versão revisada</button>`,
     resubmitted: currentUser.role === 'admin' ? `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','in_review')">Abrir nova rodada</button>` : '',
-    accepted: currentUser.role === 'admin' ? `<a class="btn-primary" href="#/editorial/${encodeURIComponent(repo)}/publish">Homologar publicação</a>` : ''
+    accepted: currentUser.role === 'admin' ? `<a class="btn-primary" href="#/editorial/${encodeURIComponent(repo)}/publish">Homologar publicação</a>` : '',
+    published: `<button class="btn-primary" onclick="handleEditorialTransition('${esc(repo)}','draft')">Iniciar nova edição</button>`
   }[stage] || '') : '';
 
   let tabContent = '';
@@ -1450,7 +1451,11 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
               <strong>${esc(ed.subject || 'Edição Homologada')}</strong>
             </div>
             <div style="font-family:var(--font-mono); font-size:0.75rem; color:var(--muted);">
-              Assinatura Git: <code>${esc(ed.hash.substr(0, 10))}</code>
+              Objeto Git anotado: <code>${esc(ed.hash.substr(0, 10))}</code>
+            </div>
+            <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+              <a class="btn-primary" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ed.name)}&format=zip" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-${esc(ed.name.replaceAll('/', '-'))}.zip')">⬇ Baixar edição ZIP</a>
+              <a class="btn-cancel" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="#/editorial/${encodeURIComponent(repo)}/diff?base=${encodeURIComponent(ed.name)}&head=HEAD&view=editorial">Comparar com atual</a>
             </div>
           </div>
         `).join('') : `
