@@ -2400,7 +2400,18 @@ async function loadEditorialProfile() {
       const inst = document.querySelector('#profInstitution');
       const areas = document.querySelector('#profAreas');
       const bio = document.querySelector('#profBio');
-      if (orcid) orcid.value = res.orcid || '';
+      if (orcid) {
+        orcid.value = res.orcid || '';
+        if (!orcid.dataset.bound) {
+          orcid.dataset.bound = 'true';
+          orcid.addEventListener('input', () => {
+            const m = orcid.value.match(/(?:https?:\/\/orcid\.org\/)?([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X])/i);
+            if (m && orcid.value.includes('orcid.org')) {
+              orcid.value = m[1].toUpperCase();
+            }
+          });
+        }
+      }
       if (inst) inst.value = res.institution || '';
       if (areas) areas.value = res.areas || '';
       if (bio) bio.value = res.bio || '';
@@ -2412,7 +2423,13 @@ window.handleSaveEditorialProfile = async function(e) {
   e.preventDefault();
   const btn = document.querySelector('#btnSaveProfile');
   const fb = document.querySelector('#profFeedback');
-  const orcid = document.querySelector('#profOrcid')?.value.trim() || '';
+  let orcid = document.querySelector('#profOrcid')?.value.trim() || '';
+  const match = orcid.match(/(?:https?:\/\/orcid\.org\/)?([0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{3}[0-9X])/i);
+  if (match) {
+    orcid = match[1].toUpperCase();
+    const input = document.querySelector('#profOrcid');
+    if (input) input.value = orcid;
+  }
   const institution = document.querySelector('#profInstitution')?.value.trim() || '';
   const areas = document.querySelector('#profAreas')?.value.trim() || '';
   const bio = document.querySelector('#profBio')?.value.trim() || '';
