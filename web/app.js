@@ -809,6 +809,10 @@ function formatLabel(ext) {
   }
 }
 
+function isMetaFile(p) {
+  return p === '.sister-editorial.json' || p === '.gitignore' || p === '.sister-research.json';
+}
+
 // ============================================================================
 // COMPARAÇÃO DE REVISÕES & DIFF EDITORIAL
 // ============================================================================
@@ -964,7 +968,6 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
   const diffData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(effectiveBase)}&head=${encodeURIComponent(effectiveHead)}`).catch(() => ({ files: [] }));
   const files = diffData.files || [];
 
-  const isMetaFile = (p) => p === '.sister-editorial.json' || p === '.gitignore' || p === '.sister-research.json';
   const docFiles = files.filter(f => !isMetaFile(f.path));
   const metaFiles = files.filter(f => isMetaFile(f.path));
 
