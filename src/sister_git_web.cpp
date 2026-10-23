@@ -2047,7 +2047,7 @@ static void client(int fd) {
     h += eh + "\r\n";
   }
   h += "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
-       "Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'\r\n"
+       "Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' blob:; frame-src 'self' blob:; object-src 'self' blob:;\r\n"
        "Connection: close\r\n\r\n";
 
   auto write_all = [](int sfd, const char *buf, size_t len) -> bool {

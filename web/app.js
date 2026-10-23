@@ -1695,6 +1695,8 @@ window.loadEditorialPdfPreview = async function(repo, filename) {
     const blob = await res.blob();
     const pdfBlob = new Blob([blob], { type: 'application/pdf' });
     frame.src = URL.createObjectURL(pdfBlob);
+    frame.style.display = 'block';
+    if (notice) notice.style.display = 'none';
   } catch (err) {
     console.error('Falha ao carregar preview do PDF:', err);
     if (notice) notice.innerHTML = `⚠️ Não foi possível pré-visualizar o PDF automaticamente. Use o botão <strong>⬇ Baixar PDF Original</strong> acima.`;
