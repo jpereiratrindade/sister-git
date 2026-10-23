@@ -2283,6 +2283,7 @@ window.handleCreateProject = async function(e) {
       fb.textContent = err.message;
       fb.classList.remove('hidden');
     }
+  } finally {
     btn.disabled = false;
     btn.textContent = 'Criar Projeto Git ✓';
   }
