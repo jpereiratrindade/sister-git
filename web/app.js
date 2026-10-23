@@ -980,6 +980,57 @@ function renderUnifiedDiff(lines) {
   `;
 }
 
+function renderPdfDiff(repo, file, base, head) {
+  const side = (label, revision, blob, sideClass) => {
+    if (!blob?.exists) {
+      return `<div class="pdf-diff-side ${sideClass}"><div class="pdf-diff-side-head"><strong>${label}</strong><span>Arquivo ausente</span></div><div class="pdf-diff-empty">PDF não existe nesta versão.</div></div>`;
+    }
+    const rawUrl = `/api/v1/repos/${encodeURIComponent(repo)}/raw?ref=${encodeURIComponent(revision)}&path=${encodeURIComponent(file.path)}`;
+    return `
+      <div class="pdf-diff-side ${sideClass}">
+        <div class="pdf-diff-side-head">
+          <strong>${label}: ${esc(revision)}</strong>
+          <span>${fmt(blob.size)} · <code>${esc((blob.oid || '').slice(0, 12))}</code></span>
+        </div>
+        <div class="pdf-diff-loading">⏳ Carregando PDF...</div>
+        <iframe class="pdf-diff-frame" data-src="${esc(rawUrl)}" title="${esc(label)} de ${esc(file.path)}"></iframe>
+      </div>`;
+  };
+  return `
+    <section class="pdf-diff-card">
+      <div class="pdf-diff-header">
+        <div><strong>📕 ${esc(file.path)}</strong><span>Comparação visual de PDF</span></div>
+        <span class="pdf-diff-binary-badge">Binário rastreado pelo Git</span>
+      </div>
+      <div class="pdf-diff-notice">PDF não possui diff textual nativo. Compare visualmente as duas versões; hash e tamanho confirmam alteração do objeto Git.</div>
+      <div class="pdf-diff-grid">
+        ${side('Base', base, file.base_blob, 'is-base')}
+        ${side('Alvo', head, file.head_blob, 'is-head')}
+      </div>
+    </section>`;
+}
+
+window.hydratePdfDiffs = async function() {
+  document.querySelectorAll('.pdf-diff-frame[data-src]').forEach(async frame => {
+    const url = frame.dataset.src;
+    delete frame.dataset.src;
+    try {
+      const headers = {};
+      const token = getToken();
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(url, { headers });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const pdfUrl = URL.createObjectURL(await response.blob());
+      frame.src = pdfUrl;
+      frame.style.display = 'block';
+      frame.previousElementSibling?.remove();
+    } catch (_) {
+      const notice = frame.previousElementSibling;
+      if (notice) notice.textContent = '⚠️ Não foi possível carregar esta versão do PDF.';
+    }
+  });
+};
+
 async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, mainDoc }) {
   const [commitsData, refsData] = await Promise.all([
     api(`/api/v1/repos/${encodeURIComponent(repo)}/commits?ref=HEAD`).catch(() => ({ commits: [] })),
@@ -1131,6 +1182,10 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
   }
 
   for (const f of docFiles) {
+    if (f.kind === 'pdf') {
+      html += renderPdfDiff(repo, f, effectiveBase, effectiveHead);
+      continue;
+    }
     if (effectiveView === 'editorial') {
       html += `
         <div class="editorial-diff-card">
@@ -1194,6 +1249,8 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
       </details>
     `;
   }
+
+  if (docFiles.some(f => f.kind === 'pdf')) setTimeout(() => window.hydratePdfDiffs(), 0);
 
   return html;
 }

@@ -1131,12 +1131,30 @@ static Response compare(const std::string &name, const std::map<std::string, std
   bool first_file = true;
   std::string cur_path;
   size_t cur_add = 0, cur_del = 0;
+  bool cur_binary = false;
   std::vector<std::pair<std::string, std::string>> cur_lines;
   auto flush_file = [&]() {
     if (cur_path.empty()) return;
+    std::string lower_path = cur_path;
+    std::transform(lower_path.begin(), lower_path.end(), lower_path.begin(), [](unsigned char c) { return std::tolower(c); });
+    bool is_pdf = lower_path.size() >= 4 && lower_path.substr(lower_path.size() - 4) == ".pdf";
+    auto blob_meta = [&](const std::string &revision) {
+      std::string spec = revision + ":" + cur_path;
+      auto oid = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "--verify", spec});
+      if (oid.status != 0) return std::string("{\"exists\":false,\"oid\":null,\"size\":0}");
+      while (!oid.out.empty() && std::isspace(static_cast<unsigned char>(oid.out.back()))) oid.out.pop_back();
+      auto size = run({"git", "--git-dir=" + git_dir(name), "cat-file", "-s", oid.out});
+      while (!size.out.empty() && std::isspace(static_cast<unsigned char>(size.out.back()))) size.out.pop_back();
+      return std::string("{\"exists\":true,\"oid\":") + json(oid.out) + ",\"size\":" +
+             (size.status == 0 && !size.out.empty() ? size.out : "0") + "}";
+    };
     if (!first_file) b += ',';
     first_file = false;
-    b += "{\"path\":" + json(cur_path) + ",\"additions\":" + std::to_string(cur_add) + ",\"deletions\":" + std::to_string(cur_del) + ",\"lines\":[";
+    b += "{\"path\":" + json(cur_path) + ",\"additions\":" + std::to_string(cur_add) +
+         ",\"deletions\":" + std::to_string(cur_del) + ",\"binary\":" + (cur_binary || is_pdf ? "true" : "false") +
+         ",\"kind\":" + json(is_pdf ? "pdf" : (cur_binary ? "binary" : "text"));
+    if (is_pdf) b += ",\"base_blob\":" + blob_meta(base) + ",\"head_blob\":" + blob_meta(head);
+    b += ",\"lines\":[";
     for (size_t i = 0; i < cur_lines.size(); i++) {
       if (i > 0) b += ',';
       b += "{\"type\":" + json(cur_lines[i].first) + ",\"text\":" + json(cur_lines[i].second) + "}";
@@ -1145,12 +1163,18 @@ static Response compare(const std::string &name, const std::map<std::string, std
     cur_lines.clear();
     cur_add = 0;
     cur_del = 0;
+    cur_binary = false;
   };
   for (auto &l : lines(r.out)) {
     if (l.rfind("diff --git", 0) == 0) {
       flush_file();
       size_t b_pos = l.find(" b/");
       cur_path = b_pos != std::string::npos ? l.substr(b_pos + 3) : "desconhecido";
+    } else if (l.rfind("Binary files ", 0) == 0) {
+      cur_binary = true;
+      cur_lines.push_back({"binary", "Arquivo binário alterado"});
+    } else if (l.rfind("--- ", 0) == 0 || l.rfind("+++ ", 0) == 0) {
+      continue;
     } else if (l.rfind("@@", 0) == 0) cur_lines.push_back({"hunk", l});
     else if (!l.empty() && l[0] == '+') { cur_lines.push_back({"add", l.substr(1)}); cur_add++; }
     else if (!l.empty() && l[0] == '-') { cur_lines.push_back({"del", l.substr(1)}); cur_del++; }

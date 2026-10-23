@@ -11,10 +11,12 @@ git -C "$TMP/work" config user.email 'teste@example.invalid'
 printf '# MORFO\n\nInterface de teste.\n' > "$TMP/work/README.md"
 printf 'int main() { return 0; }\n' > "$TMP/work/src/main.cpp"
 printf '\0binario' > "$TMP/work/image.bin"
+printf '%%PDF-1.7\nversao um\n\0fim\n' > "$TMP/work/manual.pdf"
 git -C "$TMP/work" add . && git -C "$TMP/work" commit -qm 'Primeira versão'
 git -C "$TMP/work" tag v0.1.0
 git -C "$TMP/work" push -q "$TMP/repos/MORFO.git" main --tags
 printf '// segunda\n' >> "$TMP/work/src/main.cpp"
+printf '%%PDF-1.7\nversao dois alterada\n\0fim\n' > "$TMP/work/manual.pdf"
 git -C "$TMP/work" commit -qam 'Evolui código'
 git -C "$TMP/work" push -q "$TMP/repos/MORFO.git" main
 PORT=$((20000 + RANDOM % 20000))
@@ -33,6 +35,16 @@ curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/blob?ref=main&path=image.bi
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/commits?ref=main" | grep -q 'Evolui código'
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/refs" | grep -q 'v0.1.0'
 curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/compare?base=main~1&head=main" | grep -q 'segunda'
+curl -fsS "http://127.0.0.1:$PORT/api/v1/repos/MORFO/compare?base=main~1&head=main" > "$TMP/pdf-diff.json"
+python3 - "$TMP/pdf-diff.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding='utf-8'))
+pdf = next(item for item in data['files'] if item['path'] == 'manual.pdf')
+assert pdf['binary'] is True and pdf['kind'] == 'pdf'
+assert pdf['base_blob']['exists'] and pdf['head_blob']['exists']
+assert pdf['base_blob']['oid'] != pdf['head_blob']['oid']
+assert pdf['base_blob']['size'] > 0 and pdf['head_blob']['size'] > 0
+PY
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 401 ]]
 
