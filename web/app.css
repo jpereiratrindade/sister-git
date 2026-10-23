@@ -1612,6 +1612,11 @@ main#app {
   border-bottom: 1px solid var(--line);
   background: #f8fafc;
 }
+.pdf-text-diff > summary { cursor: pointer; list-style: none; }
+.pdf-text-diff > summary::-webkit-details-marker { display: none; }
+.pdf-text-diff[open] .pdf-diff-action { color: transparent; width: 0; overflow: hidden; }
+.pdf-text-diff[open] .pdf-diff-action::after { content: "Ocultar alterações ▴"; color: var(--blue); white-space: nowrap; }
+.pdf-diff-action { margin-left: 8px; color: var(--blue); font-size: .76rem; font-weight: 700; }
 .pdf-text-diff-head strong { margin-right: auto; color: var(--navy); }
 .pdf-diff-automation-error {
   display: flex;
@@ -1633,6 +1638,7 @@ main#app {
   font-weight: 700;
   background: #f8fafc;
 }
+.pdf-visual-details > summary span { margin-left: 8px; color: var(--muted); font-weight: 400; }
 .pdf-diff-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

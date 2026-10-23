@@ -997,13 +997,16 @@ function renderPdfDiff(repo, file, base, head) {
       </div>`;
   };
   const relationLabel = file.logical
-    ? (file.change === 'added' ? 'Primeira versão do documento' : `Revisão lógica: ${file.base_path} → ${file.head_path}`)
+    ? (file.change === 'added' ? 'Primeira versão do documento' : 'Revisão do mesmo documento')
     : 'Comparação do mesmo arquivo';
+  const documentTitle = file.logical && file.change === 'revised'
+    ? `${file.base_path} → ${file.head_path}`
+    : file.path;
   const automated = file.text_diff_status === 'ok'
-    ? `<div class="pdf-text-diff">
-         <div class="pdf-text-diff-head"><strong>Diff textual automatizado</strong><span class="editorial-diff-stat-add">+${file.text_additions || 0}</span><span class="editorial-diff-stat-del">-${file.text_deletions || 0}</span></div>
+    ? `<details class="pdf-text-diff">
+         <summary class="pdf-text-diff-head"><strong>Alterações textuais detectadas</strong><span class="editorial-diff-stat-add">+${file.text_additions || 0}</span><span class="editorial-diff-stat-del">-${file.text_deletions || 0}</span><span class="pdf-diff-action">Ver alterações ▾</span></summary>
          <div class="editorial-prose-container">${file.text_lines?.length ? renderEditorialProseDiff(file.text_lines) : '<div class="pdf-diff-ok">✓ Camada textual extraída sem alterações.</div>'}</div>
-       </div>`
+       </details>`
     : `<div class="pdf-diff-automation-error">
          <strong>${file.text_diff_status === 'no_text' ? 'OCR necessário' : 'Diff automatizado indisponível'}</strong>
          <span>${file.text_diff_status === 'no_text' ? 'PDF não contém camada textual. Execute OCR antes de publicar para permitir auditoria automática.' : esc(file.text_diff_error || 'Instale pdftotext (poppler-utils) no servidor.')}</span>
@@ -1011,12 +1014,12 @@ function renderPdfDiff(repo, file, base, head) {
   return `
     <section class="pdf-diff-card">
       <div class="pdf-diff-header">
-        <div><strong>📕 ${esc(file.path)}</strong><span>${esc(relationLabel)}</span></div>
-        <span class="pdf-diff-binary-badge">Binário rastreado pelo Git</span>
+        <div><strong>📕 ${esc(documentTitle)}</strong><span>${esc(relationLabel)}</span></div>
+        <span class="pdf-diff-binary-badge">Integridade Git verificada</span>
       </div>
       ${automated}
       <details class="pdf-visual-details">
-        <summary>Comparação visual complementar</summary>
+        <summary>Abrir PDFs lado a lado <span>Conferência visual complementar</span></summary>
       <div class="pdf-diff-grid">
         ${side('Base', base, file.base_path || file.path, file.base_blob, 'is-base')}
         ${side('Alvo', head, file.head_path || file.path, file.head_blob, 'is-head')}
@@ -1036,7 +1039,7 @@ window.hydratePdfDiffs = async function() {
       const response = await fetch(url, { headers });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const pdfUrl = URL.createObjectURL(await response.blob());
-      frame.src = pdfUrl;
+      frame.src = `${pdfUrl}#pagemode=none&navpanes=0&view=FitH`;
       frame.style.display = 'block';
       frame.previousElementSibling?.remove();
     } catch (_) {
