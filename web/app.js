@@ -1264,6 +1264,25 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
             <em>Preservado sob governança SisTer Git Editorial · LABECO · Sempre pronto. Sempre incompleto!</em>
           </footer>
         </article>
+      ` : (ext === 'pdf' ? `
+        <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:20px; box-shadow:var(--shadow-sm); margin:0 auto 30px; max-width:1080px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-size:1.3rem;">📕</span>
+              <strong style="color:var(--navy); font-size:1rem;">Visualização do Manuscrito (PDF Integrado)</strong>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button type="button" class="btn-cancel" onclick="openPdfBlobInNewTab('${esc(repo)}', '${esc(mainDoc)}')" style="font-size:0.78rem; padding:5px 12px; background:#fff; cursor:pointer;">⤢ Abrir em Nova Aba</button>
+              <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(mainDoc)}" onclick="event.preventDefault(); downloadFile(this.href, '${esc(mainDoc)}')" download="${esc(mainDoc)}" class="btn-primary" style="font-size:0.78rem; padding:5px 14px; text-decoration:none;">⬇ Baixar PDF Original</a>
+            </div>
+          </div>
+          <div id="pdfViewerBox" style="width:100%; height:820px; background:#f8fafc; border:1px solid var(--line); border-radius:var(--radius-md); overflow:hidden; position:relative;">
+            <div id="pdfLoadingNotice" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:0.9rem;">
+              ⏳ Carregando documento PDF...
+            </div>
+            <iframe id="editorialPdfFrame" style="width:100%; height:100%; border:none; display:none;" onload="document.querySelector('#pdfLoadingNotice').style.display='none'; this.style.display='block';"></iframe>
+          </div>
+        </div>
       ` : `
         <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:40px 32px; text-align:center; max-width:820px; margin:0 auto 30px; box-shadow:var(--shadow-sm);">
           <span style="font-size:3.2rem; display:block; margin-bottom:14px;">${formatIcon(ext)}</span>
@@ -1280,7 +1299,7 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
             </a>
           </div>
         </div>
-      `}
+      `)}
     `;
   } else if (tab === 'upload') {
     tabContent = `
@@ -1615,7 +1634,43 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   if (tab === 'editor' && isTextDoc && canWrite) {
     handleEditorInput(document.querySelector('#liveEditorTextarea')?.value || '', '', false);
   }
+  if (tab === 'manuscript' && ext === 'pdf') {
+    loadEditorialPdfPreview(repo, mainDoc);
+  }
 }
+
+window.loadEditorialPdfPreview = async function(repo, filename) {
+  const frame = document.querySelector('#editorialPdfFrame');
+  const notice = document.querySelector('#pdfLoadingNotice');
+  if (!frame) return;
+  try {
+    const token = getToken();
+    const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+    const res = await fetch(`/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(filename)}`, { headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const pdfBlob = new Blob([blob], { type: 'application/pdf' });
+    frame.src = URL.createObjectURL(pdfBlob);
+  } catch (err) {
+    console.error('Falha ao carregar preview do PDF:', err);
+    if (notice) notice.innerHTML = `⚠️ Não foi possível pré-visualizar o PDF automaticamente. Use o botão <strong>⬇ Baixar PDF Original</strong> acima.`;
+  }
+};
+
+window.openPdfBlobInNewTab = async function(repo, filename) {
+  try {
+    const token = getToken();
+    const headers = token ? { 'Authorization': 'Bearer ' + token } : {};
+    const res = await fetch(`/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(filename)}`, { headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const pdfBlob = new Blob([blob], { type: 'application/pdf' });
+    const url = URL.createObjectURL(pdfBlob);
+    window.open(url, '_blank');
+  } catch (e) {
+    showToast('Falha ao abrir PDF: ' + e.message);
+  }
+};
 
 window.handleEditorInput = function(val, repo, persist = true) {
   const p = document.querySelector('#livePreviewPane');
