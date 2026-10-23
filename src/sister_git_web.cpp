@@ -916,20 +916,12 @@ static Response create_repo(const std::string &name, const std::string &type, co
   std::string auth_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
 
   if (type == "editorial") {
-    std::string doc_abstract = description;
-    std::string init_doc = "# " + doc_title + "\n\n"
-                           "**" + auth_name + "**  \n"
-                           "*Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)*\n\n";
-    if (!doc_abstract.empty()) {
-      init_doc += "---\n\n## Resumo\n\n" + doc_abstract + "\n";
-    }
-
     std::string init_manifest = "{\n"
                                 "  \"$schema\": \"https://sister-git.labeco.org/schemas/editorial-v1.json\",\n"
                                 "  \"schema_version\": 1,\n"
                                 "  \"project_type\": \"editorial\",\n"
                                 "  \"title\": " + json(doc_title) + ",\n"
-                                "  \"document_main\": \"manuscrito.md\",\n"
+                                "  \"document_main\": \"\",\n"
                                 "  \"abstract\": " + json(description.empty() ? "Projeto documental sob governança editorial e proveniência Git." : description) + ",\n"
                                 "  \"authors\": [{\"name\": " + json(auth_name) + ", \"affiliation\": \"LABECO\"}],\n"
                                 "  \"current_stage\": \"draft\",\n"
@@ -940,7 +932,6 @@ static Response create_repo(const std::string &name, const std::string &type, co
                                 "  \"editions\": []\n"
                                 "}\n";
 
-    git_commit_file(name, "manuscrito.md", init_doc, "docs(editorial): initial manuscript draft", auth_name, auth_email);
     git_commit_file(name, ".sister-editorial.json", init_manifest, "feat(editorial): initialize editorial manifest", auth_name, auth_email);
   } else {
     std::string init_readme = "# " + name + "\n\nRepositório de software hospedado no SisTer Git.\n";
@@ -1637,10 +1628,6 @@ static Response route_post(const std::string &target, const std::string &headers
       std::string owner = repo_owner(name);
       if (user.role != "admin" && (owner.empty() || owner != user.email)) {
         return error(403, "Apenas o proprietário do repositório ou o administrador podem excluí-lo");
-      }
-      std::string confirm_name = json_extract(body, "confirm_name");
-      if (confirm_name != name) {
-        return error(400, "Para confirmar a exclusão, digite o nome exato do repositório: '" + name + "'");
       }
       auto tags_res = run({"git", "--git-dir=" + git_dir(name), "tag", "-l", "ed/*"});
       if (!tags_res.out.empty() && user.role != "admin") {

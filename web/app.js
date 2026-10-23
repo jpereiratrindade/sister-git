@@ -1523,16 +1523,18 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   const canDecide = currentUser && (currentUser.role === 'admin' || edData.project_role === 'editor');
 
   // Detect main document
+  const docEntries = entries.filter(e => !isMetaFile(e.name));
   let mainDoc = manifest.document_main;
   if (!mainDoc || !entries.some(e => e.name === mainDoc)) {
-    const candidate = entries.find(e => /\.(docx|odt|tex|md|txt)$/i.test(e.name));
-    mainDoc = candidate ? candidate.name : (entries.length ? entries[0].name : 'manuscrito.md');
+    const candidate = docEntries.find(e => /\.(docx|odt|tex|md|txt|pdf)$/i.test(e.name));
+    mainDoc = candidate ? candidate.name : (docEntries.length ? docEntries[0].name : '');
   }
-  const ext = (mainDoc.split('.').pop() || '').toLowerCase();
-  const isTextDoc = /^(md|markdown|txt|tex)$/i.test(ext);
+  const hasMainDoc = !!mainDoc && entries.some(e => e.name === mainDoc);
+  const ext = hasMainDoc ? (mainDoc.split('.').pop() || '').toLowerCase() : 'md';
+  const isTextDoc = !hasMainDoc || /^(md|markdown|txt|tex)$/i.test(ext);
 
-  const blobData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=HEAD&path=${encodeURIComponent(mainDoc)}`).catch(() => null);
-  const rawMarkdown = blobData && !blobData.binary ? blobData.content : '# ' + title + '\n\nInicie a escrita do seu manuscrito.';
+  const blobData = hasMainDoc ? await api(`/api/v1/repos/${encodeURIComponent(repo)}/blob?ref=HEAD&path=${encodeURIComponent(mainDoc)}`).catch(() => null) : null;
+  const rawMarkdown = blobData && !blobData.binary ? blobData.content : '# ' + title + '\n\n';
 
   const stageLabels = {
     draft: 'Rascunho Ativo', submitted: 'Submetido', in_review: 'Em Revisão por Pares',
@@ -1554,7 +1556,23 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
   let tabContent = '';
 
   if (tab === 'manuscript') {
-    tabContent = `
+    tabContent = !hasMainDoc ? `
+      <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:48px 32px; text-align:center; max-width:820px; margin:0 auto 30px; box-shadow:var(--shadow-sm);">
+        <span style="font-size:3.5rem; display:block; margin-bottom:14px;">📄</span>
+        <h2 style="color:var(--navy); margin:0 0 10px; font-size:1.3rem;">Nenhum arquivo de manuscrito anexado</h2>
+        <p style="color:var(--muted); font-size:0.92rem; max-width:580px; margin:0 auto 24px; line-height:1.65;">
+          O registro editorial e o resumo institucional foram preservados no Git. Para custodiar o conteúdo do artigo, faça upload do documento original ou inicie a redação em Markdown.
+        </p>
+        <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
+          <a href="#/editorial/${encodeURIComponent(repo)}/upload" class="btn-primary" style="padding:10px 22px; font-size:0.9rem; text-decoration:none;">
+            📤 Enviar Manuscrito (.docx, .pdf, .odt...)
+          </a>
+          <a href="#/editorial/${encodeURIComponent(repo)}/editor" class="btn-cancel" style="padding:10px 22px; font-size:0.9rem; text-decoration:none; background:#fff;">
+            ✎ Redigir em Markdown
+          </a>
+        </div>
+      </div>
+    ` : `
       <div class="manuscript-file-card">
         <div class="manuscript-file-info">
           <div class="manuscript-icon-box">${formatIcon(ext)}</div>
@@ -2004,17 +2022,12 @@ window.handleDeleteFile = async function(repo, filename) {
 };
 
 window.handleDeleteProject = async function(repo) {
-  const typed = prompt(`ATENÇÃO: A exclusão do projeto é irreversível!\n\nPara confirmar a exclusão permanente de '${repo}', digite exatamente o identificador do projeto abaixo:`);
-  if (!typed) return;
-  if (typed.trim() !== repo) {
-    alert('O nome digitado não corresponde. Exclusão cancelada.');
-    return;
-  }
+  if (!confirm(`Deseja realmente excluir o projeto '${repo}' e todos os seus arquivos?`)) return;
   try {
     showToast(`⏳ Excluindo projeto '${repo}'...`);
-    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/delete`, { confirm_name: repo });
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/delete`, { confirm: true });
     try { localStorage.removeItem('sister_draft_' + repo); } catch (_) {}
-    showToast(`✓ Projeto '${repo}' excluído definitivamente.`);
+    showToast(`✓ Projeto '${repo}' excluído com sucesso.`);
     window.location.hash = '#/editorial';
   } catch (err) {
     alert('Erro ao excluir projeto: ' + err.message);
