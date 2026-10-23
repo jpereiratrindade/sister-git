@@ -964,7 +964,7 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
   const diffData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(effectiveBase)}&head=${encodeURIComponent(effectiveHead)}`).catch(() => ({ files: [] }));
   const files = diffData.files || [];
 
-  const isMetaFile = (p) => p === '.sister-editorial.json' || p === '.gitignore';
+  const isMetaFile = (p) => p === '.sister-editorial.json' || p === '.gitignore' || p === '.sister-research.json';
   const docFiles = files.filter(f => !isMetaFile(f.path));
   const metaFiles = files.filter(f => isMetaFile(f.path));
 
@@ -1154,6 +1154,337 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
   }
 
   return html;
+}
+
+function getResearchDefaultTemplate(repo, manifest = {}) {
+  return {
+    schema_version: "1.0.0",
+    doc_id: `MPRR-${(repo || 'DOC').toUpperCase().replace(/[^A-Z0-9_-]/g, '_')}`,
+    intellectual_version: "v0.1.0",
+    epistemic_status: "working_paper",
+    validation_state: "empirically_tested",
+    evidence_level: "experimental_pilot",
+    governance: {
+      laboratory: "LABECO - Laboratório de Estudos em AgroEcologia e Recursos Naturais",
+      institution: "Embrapa / LABECO",
+      protocol: "ESTRAT-MPRR-v1"
+    },
+    hypotheses: [
+      {
+        id: "H1",
+        statement: "A percepção relacional da realidade reorganiza os limiares de decisão e adaptabilidade em sistemas socioecológicos.",
+        falsifiability_criteria: "Ausência de correlação estatisticamente significante entre indicadores de resiliência e conectividade de rede.",
+        status: "active"
+      }
+    ],
+    relations: [
+      {
+        relation_type: "applies_method",
+        target_id: "MET-ESTRAT-02",
+        target_uri: "https://labeco.org/metodos/estrat-02",
+        description: "Protocolo de amostragem relacional e integridade de dados"
+      },
+      {
+        relation_type: "grounded_in",
+        target_id: "THEORY-RELATIONAL-ECOLOGY",
+        target_uri: "urn:isbn:978-85-XXXXXX",
+        description: "Fundamentação em ecologia de sistemas e cognição ecológica"
+      }
+    ],
+    datasets: [
+      {
+        name: "dados_amostragem_2026.csv",
+        format: "csv",
+        sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        storage_path: "data/dados_amostragem_2026.csv",
+        license: "CC-BY-4.0"
+      }
+    ],
+    attribution: {
+      human_intellectual_contribution_percent: 85,
+      ai_assistance: {
+        used: true,
+        models: ["Claude / Gemini / Antigravity"],
+        scope: "Auxílio na estruturação sintática, formatação de tabelas e revisão gramatical.",
+        autonomous_generation: false
+      },
+      conflict_of_interest: "Declara-se inexistência de conflitos de interesse."
+    }
+  };
+}
+
+function buildResearchViewHtml(repo, edData, canWrite) {
+  const research = edData.research;
+  const hasResearch = edData.has_research && research;
+
+  if (!hasResearch) {
+    return `
+      <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:48px 32px; text-align:center; max-width:860px; margin:0 auto 30px; box-shadow:var(--shadow-sm);">
+        <span style="font-size:3.5rem; display:block; margin-bottom:16px;">🔬</span>
+        <h2 style="color:var(--navy); margin:0 0 10px; font-size:1.35rem;">Manifesto Epistêmico de Pesquisa (.sister-research.json)</h2>
+        <p style="color:var(--muted); font-size:0.92rem; max-width:620px; margin:0 auto 24px; line-height:1.65;">
+          Este projeto ainda não possui metadados de pesquisa estruturados. O SisTer Git suporta governança científica com registro explícito de hipóteses falseáveis, relações ontológicas tipadas, rastreabilidade criptográfica de datasets e transparência de autoria humana e assistência de IA (padrão MPRR/ESTRAT).
+        </p>
+        ${canWrite ? `
+          <div style="display:flex; justify-content:center; gap:12px; flex-wrap:wrap;">
+            <button type="button" class="btn-primary" style="padding:10px 24px; font-size:0.9rem;" onclick="openResearchModal('${esc(repo)}')">
+              + Estruturar Metadados de Pesquisa (Modelo MPRR) 🚀
+            </button>
+          </div>
+        ` : `
+          <p style="color:var(--muted); font-size:0.85rem; font-style:italic;">Apenas o autor ou editor pode inicializar o manifesto de pesquisa.</p>
+        `}
+      </div>
+    `;
+  }
+
+  const epistemicLabels = {
+    working_paper: { label: 'Working Paper / Trabalho em Progresso', bg: '#fef3c7', color: '#92400e', border: '#fde68a' },
+    draft: { label: 'Rascunho Preliminar', bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
+    pre_print: { label: 'Pre-Print Científico', bg: '#e0f2fe', color: '#0369a1', border: '#bae6fd' },
+    peer_reviewed: { label: 'Revisado por Pares', bg: '#d1fae5', color: '#065f46', border: '#a7f3d0' },
+    canonical_doctrine: { label: 'Doutrina Canônica / Referência', bg: '#ede9fe', color: '#5b21b6', border: '#ddd6fe' }
+  };
+  const ep = epistemicLabels[research.epistemic_status] || { label: research.epistemic_status || 'Não especificado', bg: '#f1f5f9', color: '#334155', border: '#cbd5e1' };
+
+  const validationLabels = {
+    empirically_tested: { label: 'Testado Empiricamente', bg: '#ccfbf1', color: '#115e59', border: '#99f6e4' },
+    speculative: { label: 'Especulativo / Hipotético', bg: '#fef3c7', color: '#b45309', border: '#fde68a' },
+    replicated: { label: 'Replicado Independentemente', bg: '#dcfce7', color: '#166534', border: '#bbf7d0' },
+    falsified: { label: 'Refutado / Falseado', bg: '#fee2e2', color: '#991b1b', border: '#fecaca' },
+    verified: { label: 'Verificado Formalmente', bg: '#dbeafe', color: '#1e40af', border: '#bfdbfe' }
+  };
+  const val = validationLabels[research.validation_state] || { label: research.validation_state || 'Não especificado', bg: '#f1f5f9', color: '#334155', border: '#cbd5e1' };
+
+  const hypotheses = Array.isArray(research.hypotheses) ? research.hypotheses : [];
+  const relations = Array.isArray(research.relations) ? research.relations : [];
+  const datasets = Array.isArray(research.datasets) ? research.datasets : [];
+  const attribution = research.attribution || {};
+  const governance = research.governance || {};
+
+  return `
+    <div style="max-width:1080px; margin:0 auto 30px;">
+      <!-- CABEÇALHO DO MANIFESTO EPISTÊMICO -->
+      <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:24px 28px; box-shadow:var(--shadow-sm); margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:14px; margin-bottom:16px;">
+          <div>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+              <span class="section-kicker" style="margin:0;">ESTATUTO EPISTEMOLÓGICO · PROVENIÊNCIA SOBERANA</span>
+              <span class="badge-edition-tag">v${esc(research.schema_version || '1.0.0')}</span>
+            </div>
+            <h2 style="color:var(--navy); margin:0; font-size:1.35rem; display:flex; align-items:center; gap:10px;">
+              <span>🔬 ${esc(research.doc_id || repo)}</span>
+              <span style="font-size:0.85rem; font-family:var(--font-mono); color:var(--muted); font-weight:normal;">[${esc(research.intellectual_version || 'v0.1.0')}]</span>
+            </h2>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            ${canWrite ? `
+              <button type="button" class="btn-primary" style="font-size:0.82rem; padding:6px 14px;" onclick='openResearchModal("${esc(repo)}", ${JSON.stringify(research).replace(/'/g, "&#39;")})'>
+                ✏️ Editar Manifesto (.sister-research.json)
+              </button>
+            ` : ''}
+            <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=.sister-research.json" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-research.json')" download="${esc(repo)}-research.json" class="btn-cancel" style="font-size:0.82rem; padding:6px 14px; background:#fff; text-decoration:none;">
+              ⬇ Baixar JSON
+            </a>
+          </div>
+        </div>
+
+        <!-- GRADE DE INDICADORES EPISTÊMICOS -->
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:12px; margin-top:16px; padding-top:16px; border-top:1px solid var(--line);">
+          <div style="background:#f8fafc; padding:10px 14px; border-radius:var(--radius-md); border:1px solid #e2e8f0;">
+            <div style="font-size:0.72rem; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:4px;">Estatuto Epistêmico</div>
+            <span style="display:inline-block; font-size:0.78rem; font-weight:600; padding:2px 8px; border-radius:6px; background:${ep.bg}; color:${ep.color}; border:1px solid ${ep.border};">
+              ${esc(ep.label)}
+            </span>
+          </div>
+
+          <div style="background:#f8fafc; padding:10px 14px; border-radius:var(--radius-md); border:1px solid #e2e8f0;">
+            <div style="font-size:0.72rem; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:4px;">Estado de Validação</div>
+            <span style="display:inline-block; font-size:0.78rem; font-weight:600; padding:2px 8px; border-radius:6px; background:${val.bg}; color:${val.color}; border:1px solid ${val.border};">
+              ${esc(val.label)}
+            </span>
+          </div>
+
+          <div style="background:#f8fafc; padding:10px 14px; border-radius:var(--radius-md); border:1px solid #e2e8f0;">
+            <div style="font-size:0.72rem; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:4px;">Nível de Evidência</div>
+            <code style="font-size:0.8rem; color:var(--navy); font-weight:600;">${esc(research.evidence_level || 'experimental_pilot')}</code>
+          </div>
+
+          <div style="background:#f8fafc; padding:10px 14px; border-radius:var(--radius-md); border:1px solid #e2e8f0;">
+            <div style="font-size:0.72rem; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:4px;">Protocolo / Laboratório</div>
+            <div style="font-size:0.8rem; font-weight:600; color:var(--navy); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${esc(governance.protocol || 'ESTRAT-MPRR')} · ${esc(governance.laboratory || 'LABECO')}">
+              ${esc(governance.protocol || 'ESTRAT-MPRR')} · ${esc(governance.laboratory || 'LABECO')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SEÇÃO 1: HIPÓTESES E PROPOSIÇÕES -->
+      <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:24px 28px; box-shadow:var(--shadow-sm); margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div>
+            <h3 style="margin:0; font-size:1.1rem; color:var(--navy);">Hipóteses &amp; Proposições Epistêmicas (${hypotheses.length})</h3>
+            <p style="margin:2px 0 0; color:var(--muted); font-size:0.8rem;">Enunciados teóricos sob escrutínio popperiano de falseabilidade</p>
+          </div>
+        </div>
+        ${hypotheses.length ? `
+          <div style="display:grid; gap:12px;">
+            ${hypotheses.map(h => {
+              const hStatus = (h.status || 'active').toLowerCase();
+              const badgeBg = hStatus === 'corroborated' ? '#dcfce7' : hStatus === 'refuted' ? '#fee2e2' : '#e0f2fe';
+              const badgeColor = hStatus === 'corroborated' ? '#166534' : hStatus === 'refuted' ? '#991b1b' : '#0369a1';
+              return `
+                <div style="border:1px solid #e2e8f0; border-radius:var(--radius-md); padding:14px 18px; background:#fafafa;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                      <span style="font-family:var(--font-mono); font-weight:700; background:var(--navy); color:#fff; font-size:0.75rem; padding:2px 8px; border-radius:4px;">${esc(h.id || 'H')}</span>
+                      <strong style="color:var(--navy); font-size:0.92rem;">${esc(h.statement || '')}</strong>
+                    </div>
+                    <span style="font-size:0.72rem; font-weight:700; text-transform:uppercase; padding:2px 8px; border-radius:4px; background:${badgeBg}; color:${badgeColor};">
+                      ${esc(h.status || 'Ativo')}
+                    </span>
+                  </div>
+                  ${h.falsifiability_criteria ? `
+                    <div style="margin-top:8px; font-size:0.82rem; color:#475569; background:#fff; padding:8px 12px; border-radius:4px; border:1px dashed #cbd5e1;">
+                      <strong style="color:var(--navy); font-size:0.78rem;">Critério de Falseabilidade:</strong> ${esc(h.falsifiability_criteria)}
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : `
+          <div style="text-align:center; padding:20px; color:var(--muted); font-size:0.85rem; font-style:italic;">
+            Nenhuma hipótese formal declarada neste manifesto.
+          </div>
+        `}
+      </div>
+
+      <!-- SEÇÃO 2: RELAÇÕES TIPADAS & ONTORREDE -->
+      <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:24px 28px; box-shadow:var(--shadow-sm); margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div>
+            <h3 style="margin:0; font-size:1.1rem; color:var(--navy);">Relações Tipadas &amp; Grafo Conceitual (${relations.length})</h3>
+            <p style="margin:2px 0 0; color:var(--muted); font-size:0.8rem;">Vínculos explícitos com métodos, teorias, evidências e ontologias do ecossistema</p>
+          </div>
+        </div>
+        ${relations.length ? `
+          <table class="tree-table" style="box-shadow:none; border:1px solid #e2e8f0;">
+            <thead>
+              <tr>
+                <th style="width:180px;">Relação Tipada</th>
+                <th style="width:240px;">Alvo / Conceito</th>
+                <th>Descrição Epistêmica</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${relations.map(rel => `
+                <tr>
+                  <td><code style="font-size:0.76rem; background:#f1f5f9; padding:2px 6px; border-radius:4px; color:var(--blue); font-weight:700;">${esc(rel.relation_type || 'relates_to')}</code></td>
+                  <td>
+                    <strong>${esc(rel.target_id || '')}</strong>
+                    ${rel.target_uri ? `<br><a href="${esc(rel.target_uri)}" target="_blank" rel="noopener noreferrer" style="font-size:0.72rem; color:var(--blue); text-decoration:underline;">${esc(rel.target_uri)} ↗</a>` : ''}
+                  </td>
+                  <td style="font-size:0.83rem; color:#475569;">${esc(rel.description || '—')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : `
+          <div style="text-align:center; padding:20px; color:var(--muted); font-size:0.85rem; font-style:italic;">
+            Nenhuma relação tipada mapeada neste manifesto.
+          </div>
+        `}
+      </div>
+
+      <!-- SEÇÃO 3: DATASETS E PROVENIÊNCIA CRIPTOGRÁFICA -->
+      <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:24px 28px; box-shadow:var(--shadow-sm); margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+          <div>
+            <h3 style="margin:0; font-size:1.1rem; color:var(--navy);">Proveniência de Datasets &amp; Reprodutibilidade (${datasets.length})</h3>
+            <p style="margin:2px 0 0; color:var(--muted); font-size:0.8rem;">Hashes criptográficos (SHA-256) garantindo imutabilidade dos dados empíricos</p>
+          </div>
+        </div>
+        ${datasets.length ? `
+          <table class="tree-table" style="box-shadow:none; border:1px solid #e2e8f0;">
+            <thead>
+              <tr>
+                <th>Conjunto de Dados</th>
+                <th>Formato</th>
+                <th>Hash Criptográfico SHA-256</th>
+                <th>Licença</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${datasets.map(ds => `
+                <tr>
+                  <td>
+                    <strong>${esc(ds.name || 'Dataset')}</strong>
+                    ${ds.storage_path ? `<div style="font-size:0.72rem; color:var(--muted); font-family:var(--font-mono);">${esc(ds.storage_path)}</div>` : ''}
+                  </td>
+                  <td><span class="badge-edition-tag">${esc(ds.format || 'csv')}</span></td>
+                  <td><code style="font-size:0.75rem; word-break:break-all; color:#1e293b; background:#f8fafc; padding:3px 6px; border-radius:4px; border:1px solid #e2e8f0;">${esc(ds.sha256 || 'Não informado')}</code></td>
+                  <td style="font-size:0.8rem; font-weight:600; color:#475569;">${esc(ds.license || 'CC-BY-4.0')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : `
+          <div style="text-align:center; padding:20px; color:var(--muted); font-size:0.85rem; font-style:italic;">
+            Nenhum dataset empírico registrado no manifesto.
+          </div>
+        `}
+      </div>
+
+      <!-- SEÇÃO 4: AUTORIA, TRANSPARÊNCIA E USO DE IA -->
+      <div style="background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:24px 28px; box-shadow:var(--shadow-sm); margin-bottom:20px;">
+        <h3 style="margin:0 0 4px; font-size:1.1rem; color:var(--navy);">Transparência Autoral &amp; Atribuição IA</h3>
+        <p style="margin:0 0 16px; color:var(--muted); font-size:0.8rem;">Conformidade ética, salvaguarda do trabalho intelectual humano e escopo de assistência artificial</p>
+        
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:18px;">
+          <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:var(--radius-md); padding:16px;">
+            <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; color:var(--muted); margin-bottom:8px;">Contribuição Intelectual Humana</div>
+            <div style="display:flex; align-items:baseline; gap:8px;">
+              <span style="font-size:2rem; font-weight:800; color:var(--navy);">${esc(attribution.human_intellectual_contribution_percent != null ? attribution.human_intellectual_contribution_percent : 100)}%</span>
+              <span style="font-size:0.82rem; color:var(--muted);">concepção e rigor autoral</span>
+            </div>
+            <div style="width:100%; height:8px; background:#e2e8f0; border-radius:4px; overflow:hidden; margin-top:8px;">
+              <div style="width:${Math.min(100, Math.max(0, attribution.human_intellectual_contribution_percent != null ? attribution.human_intellectual_contribution_percent : 100))}%; height:100%; background:var(--teal);"></div>
+            </div>
+          </div>
+
+          <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:var(--radius-md); padding:16px;">
+            <div style="font-size:0.75rem; font-weight:700; text-transform:uppercase; color:var(--muted); margin-bottom:8px;">Declaração de Assistência de IA</div>
+            ${attribution.ai_assistance && attribution.ai_assistance.used ? `
+              <div style="font-size:0.82rem; color:#334155; line-height:1.5;">
+                <strong>Modelos / Ferramentas:</strong> ${esc(Array.isArray(attribution.ai_assistance.models) ? attribution.ai_assistance.models.join(', ') : (attribution.ai_assistance.models || 'Sistemas LLM'))}<br>
+                <strong>Escopo:</strong> ${esc(attribution.ai_assistance.scope || 'Apoio de redação e sintaxe.')}<br>
+                <strong>Geração Autônoma:</strong> ${attribution.ai_assistance.autonomous_generation ? 'Sim (Auditada)' : 'Não (Supervisão Integral)'}
+              </div>
+            ` : `
+              <div style="font-size:0.85rem; color:#166534; font-weight:600;">
+                ✓ Produção integralmente manual sem uso de IA generativa declarado.
+              </div>
+            `}
+          </div>
+        </div>
+
+        ${attribution.conflict_of_interest ? `
+          <div style="margin-top:14px; font-size:0.8rem; color:#475569; background:#fafafa; border:1px solid #e2e8f0; padding:10px 14px; border-radius:var(--radius-md);">
+            <strong style="color:var(--navy);">Declaração de Conflito de Interesses:</strong> ${esc(attribution.conflict_of_interest)}
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- SEÇÃO 5: JSON COMPLETO (.sister-research.json) -->
+      <details style="background:#f8fafc; border:1px solid var(--line); border-radius:var(--radius-lg); padding:16px 20px;">
+        <summary style="font-size:0.85rem; font-weight:700; color:var(--navy); cursor:pointer;">
+          📄 Exibir Conteúdo Bruto do Manifesto Soberano (.sister-research.json)
+        </summary>
+        <pre style="margin-top:12px; background:#0f172a; color:#f8fafc; padding:16px; border-radius:var(--radius-md); font-family:var(--font-mono); font-size:0.78rem; overflow:auto; max-height:400px; line-height:1.45;"><code>${esc(JSON.stringify(research, null, 2))}</code></pre>
+      </details>
+    </div>
+  `;
 }
 
 async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
@@ -1556,6 +1887,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
         `}
       </div>
     `;
+  } else if (tab === 'research') {
+    tabContent = buildResearchViewHtml(repo, edData, canWrite);
   } else if (tab === 'diff') {
     tabContent = await buildCompareViewHtml({
       repo,
@@ -1608,6 +1941,10 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
     <nav class="doc-tabs-bar" aria-label="Navegação do Artigo">
       <a href="#/editorial/${encodeURIComponent(repo)}/manuscript" class="doc-tab ${tab === 'manuscript' ? 'active' : ''}">
         <span>📖 Manuscrito &amp; Leitura</span>
+      </a>
+      <a href="#/editorial/${encodeURIComponent(repo)}/research" class="doc-tab ${tab === 'research' ? 'active' : ''}">
+        <span>🔬 Pesquisa &amp; Episteme</span>
+        ${edData.has_research ? '<span class="tab-badge-count" style="background:#0f766e; color:#fff;" title="Manifesto .sister-research.json ativo">✓</span>' : ''}
       </a>
       <a href="#/editorial/${encodeURIComponent(repo)}/diff" class="doc-tab ${tab === 'diff' ? 'active' : ''}">
         <span>⇄ Comparar Versões</span>
@@ -1680,6 +2017,91 @@ window.handleDeleteProject = async function(repo) {
     window.location.hash = '#/editorial';
   } catch (err) {
     alert('Erro ao excluir projeto: ' + err.message);
+  }
+};
+
+window.openResearchModal = function(repo, existingData = null) {
+  const repoInput = document.querySelector('#researchRepoName');
+  const jsonInput = document.querySelector('#researchJsonContent');
+  const commitInput = document.querySelector('#researchCommitMsg');
+  const fb = document.querySelector('#researchFeedback');
+
+  if (repoInput) repoInput.value = repo;
+  if (fb) {
+    fb.className = 'form-feedback hidden';
+    fb.textContent = '';
+  }
+  if (commitInput) {
+    commitInput.value = existingData ? 'chore(research): atualizar metadados epistêmicos de pesquisa' : 'feat(research): inicializar manifesto epistêmico (.sister-research.json)';
+  }
+
+  if (existingData && typeof existingData === 'object') {
+    jsonInput.value = JSON.stringify(existingData, null, 2);
+  } else {
+    const tmpl = getResearchDefaultTemplate(repo);
+    jsonInput.value = JSON.stringify(tmpl, null, 2);
+  }
+
+  openModal('modalResearchMetadata');
+};
+
+window.loadResearchTemplate = function() {
+  const repo = document.querySelector('#researchRepoName')?.value || 'artigo';
+  const tmpl = getResearchDefaultTemplate(repo);
+  const jsonInput = document.querySelector('#researchJsonContent');
+  if (jsonInput) {
+    jsonInput.value = JSON.stringify(tmpl, null, 2);
+    showToast('Template padrão MPRR/Embrapa carregado!');
+  }
+};
+
+window.handleSaveResearchMetadata = async function(e) {
+  e.preventDefault();
+  const repo = document.querySelector('#researchRepoName').value;
+  const rawJson = document.querySelector('#researchJsonContent').value.trim();
+  let commitMsg = document.querySelector('#researchCommitMsg').value.trim();
+  const btn = document.querySelector('#btnSaveResearch');
+  const fb = document.querySelector('#researchFeedback');
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch (err) {
+    if (fb) {
+      fb.className = 'form-feedback error';
+      fb.textContent = 'Erro de sintaxe JSON: ' + err.message;
+      fb.classList.remove('hidden');
+    }
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Gravando no Git...';
+  if (fb) {
+    fb.className = 'form-feedback hidden';
+    fb.textContent = '';
+  }
+
+  try {
+    const expectedHead = window.sisterEditorialHeads ? window.sisterEditorialHeads[repo] || '' : '';
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/research`, {
+      content: JSON.stringify(parsed, null, 2) + '\n',
+      commit_msg: commitMsg || 'feat(research): update research epistemic metadata (.sister-research.json)',
+      expected_head: expectedHead
+    });
+
+    closeModal('modalResearchMetadata');
+    showToast('Manifesto epistêmico (.sister-research.json) gravado com sucesso no Git!');
+    renderEditorialDoc(repo, 'research');
+  } catch (err) {
+    if (fb) {
+      fb.className = 'form-feedback error';
+      fb.textContent = 'Erro ao salvar no Git: ' + err.message;
+      fb.classList.remove('hidden');
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Salvar no Git (.sister-research.json) ✓';
   }
 };
 

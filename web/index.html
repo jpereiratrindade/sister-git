@@ -580,6 +580,46 @@
     </section>
   </div>
 
+  <!-- MODAL: METADADOS CIENTÍFICOS & PESQUISA (.sister-research.json) -->
+  <div id="modalResearchMetadata" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modalResearchTitle">
+    <section class="modal sm-card" style="width: min(840px, 100%);">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">GOVERNANÇA EPISTÊMICA · PROVENIÊNCIA</span>
+          <h2 id="modalResearchTitle">Metadados de Pesquisa (.sister-research.json)</h2>
+        </div>
+        <button class="close-btn" onclick="closeModal('modalResearchMetadata')" type="button" aria-label="Fechar">×</button>
+      </div>
+      <form id="formResearchMetadata" onsubmit="handleSaveResearchMetadata(event)">
+        <input type="hidden" id="researchRepoName">
+        <div class="modal-body-pad">
+          <p class="auth-intro" style="margin-bottom: 12px;">
+            Estruture o estatuto epistemológico, hipóteses, relações tipadas e integridade científica. Estes metadados são preservados como um arquivo sidecar soberano na raiz do Git.
+          </p>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="field-label" style="margin: 0;">
+              <span>Estrutura JSON do Manifesto de Pesquisa</span>
+            </label>
+            <button type="button" class="btn-cancel" style="font-size: 0.75rem; padding: 3px 8px;" onclick="loadResearchTemplate()">
+              ↺ Carregar Template Padrão MPRR/Embrapa
+            </button>
+          </div>
+          <textarea id="researchJsonContent" rows="16" style="font-family: var(--font-mono); font-size: 0.82rem; width: 100%; tab-size: 2; padding: 10px; border-radius: var(--radius-md); border: 1px solid var(--line); line-height: 1.45;" required></textarea>
+          
+          <label class="field-label" style="margin-top: 10px;">
+            <span>Mensagem do Commit Git</span>
+            <input type="text" id="researchCommitMsg" placeholder="feat(research): atualizar metadados epistêmicos de pesquisa" style="padding: 6px 10px;">
+          </label>
+          <div id="researchFeedback" class="form-feedback hidden" style="margin-top: 8px;"></div>
+        </div>
+        <div class="modal-foot-actions">
+          <button type="button" class="btn-cancel" onclick="closeModal('modalResearchMetadata')">Cancelar</button>
+          <button type="submit" id="btnSaveResearch" class="btn-primary">Salvar no Git (.sister-research.json) ✓</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
   <!-- TOAST NOTIFICAÇÃO -->
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

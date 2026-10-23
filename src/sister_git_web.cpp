@@ -1169,11 +1169,17 @@ static Response editorial(const std::string &name, const AuthUser &user) {
   auto commit_date_result = run({"git", "--git-dir=" + git_dir(name), "show", "-s", "--format=%aI", manifest_ref});
   std::string commit_date = commit_date_result.status == 0 ? commit_date_result.out : "";
   while (!commit_date.empty() && std::isspace(static_cast<unsigned char>(commit_date.back()))) commit_date.pop_back();
+  auto res_manifest = run({"git", "--git-dir=" + git_dir(name), "show", manifest_ref + ":.sister-research.json"});
+  std::string research_raw = res_manifest.status == 0 ? res_manifest.out : "";
+  while (!research_raw.empty() && (research_raw.back() == '\n' || research_raw.back() == '\r' || research_raw.back() == ' ')) research_raw.pop_back();
+  bool has_research = !research_raw.empty() && valid_json_object(research_raw);
+  std::string research_json = has_research ? research_raw : "null";
+
   if (!user.authenticated) {
-    return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"published_commit\":" + json(head_sha) + ",\"commit_date\":" + json(commit_date) + ",\"is_editorial\":true,\"manifest\":" + manifest_json + ",\"tags\":" + tags_json + "}"};
+    return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"published_commit\":" + json(head_sha) + ",\"commit_date\":" + json(commit_date) + ",\"is_editorial\":true,\"manifest\":" + manifest_json + ",\"has_research\":" + (has_research ? "true" : "false") + ",\"research\":" + research_json + ",\"tags\":" + tags_json + "}"};
   }
   bool migration_required = manifest_valid && json_extract(manifest_raw, "schema_version") != "1";
-  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"head\":" + json(head_sha) + ",\"commit_date\":" + json(commit_date) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"migration_required\":" + (migration_required ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
+  return {200, "application/json; charset=utf-8", "{\"repository\":" + json(name) + ",\"head\":" + json(head_sha) + ",\"commit_date\":" + json(commit_date) + ",\"visibility\":" + json(vis) + ",\"owner\":" + json(owner) + ",\"project_role\":" + json(project_role) + ",\"is_editorial\":" + is_ed + ",\"has_manifest\":" + (has_manifest ? "true" : "false") + ",\"has_research\":" + (has_research ? "true" : "false") + ",\"research\":" + research_json + ",\"migration_required\":" + (migration_required ? "true" : "false") + ",\"manifest\":" + manifest_json + ",\"manifest_error\":" + manifest_error + ",\"tags\":" + tags_json + "}"};
 }
 
 static Response archive(const std::string &name, const std::map<std::string, std::string> &q) {
@@ -1711,6 +1717,18 @@ static Response route_post(const std::string &target, const std::string &headers
       auto migrated = git_commit_file(name, ".sister-editorial.json", manifest, "chore(editorial): migrate manifest to schema v1", user.name, user.email, true, expected_head);
       if (migrated.status != 0) return error(migrated.status == 409 ? 409 : 500, migrated.out);
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"migrated\":true,\"schema_version\":1,\"commit\":" + json(migrated.out) + "}"};
+    }
+
+    if (action == "editorial/research") {
+      std::string content = json_extract(body, "content");
+      if (content.empty()) return error(400, "Conteúdo de metadados de pesquisa ausente");
+      if (!valid_json_object(content)) return error(400, "Conteúdo de metadados deve ser um JSON válido");
+      std::string commit_msg = json_extract(body, "commit_msg");
+      if (commit_msg.empty()) commit_msg = "feat(research): update research epistemic metadata (.sister-research.json)";
+      std::string expected_head = json_extract(body, "expected_head");
+      auto r = git_commit_file(name, ".sister-research.json", content, commit_msg, user.name, user.email, true, expected_head);
+      if (r.status != 0) return error(r.status == 409 ? 409 : 500, r.out);
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"commit\":" + json(r.out) + "}"};
     }
 
     if (action == "editorial/save") {
