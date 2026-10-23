@@ -574,6 +574,7 @@ static void init_auth_db() {
     g_db = nullptr;
     return;
   }
+  sqlite3_exec(g_db, "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;", nullptr, nullptr, nullptr);
   const char *ddl = R"(
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -1628,6 +1629,74 @@ static Response route_post(const std::string &target, const std::string &headers
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"name\":" + json(name) + ",\"visibility\":" + json(vis) + "}"};
     }
 
+    if (action == "delete") {
+      std::string owner = repo_owner(name);
+      if (user.role != "admin" && (owner.empty() || owner != user.email)) {
+        return error(403, "Apenas o proprietário do repositório ou o administrador podem excluí-lo");
+      }
+      std::string confirm_name = json_extract(body, "confirm_name");
+      if (confirm_name != name) {
+        return error(400, "Para confirmar a exclusão, digite o nome exato do repositório: '" + name + "'");
+      }
+      auto tags_res = run({"git", "--git-dir=" + git_dir(name), "tag", "-l", "ed/*"});
+      if (!tags_res.out.empty() && user.role != "admin") {
+        return error(403, "Este projeto contém edições publicadas (tags ed/*). A exclusão permanente de patrimônio epistêmico publicado é restrita ao administrador.");
+      }
+      std::error_code ec;
+      fs::remove_all(git_dir(name), ec);
+      if (ec) {
+        return error(500, "Falha ao remover repositório do disco: " + ec.message());
+      }
+      if (g_db) {
+        sqlite3_stmt *stmt = nullptr;
+        if (sqlite3_prepare_v2(g_db, "DELETE FROM project_members WHERE repo = ?", -1, &stmt, nullptr) == SQLITE_OK) {
+          sqlite3_bind_text(stmt, 1, name.c_str(), -1, SQLITE_TRANSIENT);
+          sqlite3_step(stmt);
+          sqlite3_finalize(stmt);
+        }
+      }
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"deleted\":" + json(name) + "}"};
+    }
+
+    if (action == "delete-file") {
+      std::string filename = json_extract(body, "filename");
+      if (!valid_path(filename) || filename.empty()) return error(400, "Nome de arquivo inválido");
+      if (filename == ".sister-editorial.json") return error(400, "O manifesto de governança editorial não pode ser excluído");
+      
+      std::string gd = git_dir(name);
+      auto head_chk = run({"git", "--git-dir=" + gd, "rev-parse", "--verify", "HEAD"});
+      if (head_chk.status != 0) return error(404, "Repositório vazio ou sem HEAD");
+      std::string parent_commit = head_chk.out;
+      while (!parent_commit.empty() && std::isspace(static_cast<unsigned char>(parent_commit.back()))) parent_commit.pop_back();
+      
+      std::string idx = gd + "/index_del_" + std::to_string(std::time(nullptr)) + "_" + std::to_string(rand());
+      std::string auth_name = user.name.empty() ? "SisTer Editor" : user.name;
+      std::string auth_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
+      std::map<std::string, std::string> env = {
+        {"GIT_INDEX_FILE", idx},
+        {"GIT_AUTHOR_NAME", auth_name},
+        {"GIT_AUTHOR_EMAIL", auth_email},
+        {"GIT_COMMITTER_NAME", auth_name},
+        {"GIT_COMMITTER_EMAIL", auth_email}
+      };
+      run_stdin({"git", "--git-dir=" + gd, "read-tree", "HEAD"}, "", env);
+      auto rm_r = run_stdin({"git", "--git-dir=" + gd, "update-index", "--force-remove", filename}, "", env);
+      if (rm_r.status != 0) { unlink(idx.c_str()); return error(500, "Falha ao remover arquivo do índice Git"); }
+      
+      auto wt = run_stdin({"git", "--git-dir=" + gd, "write-tree"}, "", env);
+      if (wt.status != 0) { unlink(idx.c_str()); return error(500, "Falha ao gravar árvore Git"); }
+      std::string tree_sha = wt.out;
+      while (!tree_sha.empty() && std::isspace(static_cast<unsigned char>(tree_sha.back()))) tree_sha.pop_back();
+      
+      auto ct = run_stdin({"git", "--git-dir=" + gd, "commit-tree", tree_sha, "-p", parent_commit}, "chore: remove file " + filename + "\n", env);
+      unlink(idx.c_str());
+      if (ct.status != 0) return error(500, "Falha ao gerar commit de remoção");
+      std::string new_commit = ct.out;
+      while (!new_commit.empty() && std::isspace(static_cast<unsigned char>(new_commit.back()))) new_commit.pop_back();
+      run({"git", "--git-dir=" + gd, "update-ref", "refs/heads/main", new_commit, parent_commit});
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"file\":" + json(filename) + ",\"commit\":" + json(new_commit) + "}"};
+    }
+
     if (action == "editorial/migrate") {
       auto current = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
       if (current.status != 0) return error(409, "Manifesto editorial ausente");
@@ -2190,6 +2259,13 @@ int main(int argc, char **argv) {
 
   for (;;) {
     int c = accept(s, nullptr, nullptr);
-    if (c >= 0) client(c);
+    if (c >= 0) {
+      struct timeval tv{};
+      tv.tv_sec = 10;
+      tv.tv_usec = 0;
+      setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+      setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
+      client(c);
+    }
   }
 }

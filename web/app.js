@@ -1387,6 +1387,9 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
                       <div style="display:inline-flex; gap:6px;">
                         <a href="/api/v1/repos/${encodeURIComponent(repo)}/raw?path=${encodeURIComponent(e.name)}" onclick="event.preventDefault(); downloadFile(this.href, '${esc(e.name)}')" download="${esc(e.name)}" class="btn-cancel" style="padding:3px 9px; font-size:0.75rem; background:#fff; text-decoration:none;" title="Baixar arquivo original">⬇ Baixar</a>
                         <a href="#/r/${encodeURIComponent(repo)}/code?path=${encodeURIComponent(e.name)}" class="btn-cancel" style="padding:3px 9px; font-size:0.75rem; background:#fff; text-decoration:none;">Git</a>
+                        ${canWrite && e.name !== '.sister-editorial.json' ? `
+                          <button type="button" class="btn-cancel" style="padding:3px 8px; font-size:0.75rem; color:#cf222e; border-color:#fca5a5; background:#fff; cursor:pointer;" onclick="handleDeleteFile('${esc(repo)}', '${esc(e.name)}')" title="Excluir arquivo do repositório">🗑️</button>
+                        ` : ''}
                       </div>
                     </td>
                   </tr>
@@ -1629,6 +1632,18 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
     <div id="docTabHost">
       ${tabContent}
     </div>
+
+    ${canWrite ? `
+      <div style="margin-top:36px; border:1px solid #fecaca; border-radius:var(--radius-lg); background:#fff5f5; padding:18px 22px; max-width:960px; margin-left:auto; margin-right:auto;">
+        <h4 style="color:#991b1b; margin:0 0 6px; font-size:0.92rem;">Zona de Perigo · Exclusão Permanente</h4>
+        <p style="color:#7f1d1d; font-size:0.8rem; margin:0 0 12px; line-height:1.5;">
+          A exclusão deste projeto remove o repositório Git bare, seus arquivos e registros. Se houver edições publicadas (tags ed/*), o sistema exige permissão administrativa para salvaguardar a proveniência institucional.
+        </p>
+        <button type="button" class="btn-cancel" style="color:#fff; background:#dc2626; border:none; padding:7px 14px; font-size:0.8rem; font-weight:600; cursor:pointer;" onclick="handleDeleteProject('${esc(repo)}')">
+          🗑️ Excluir este Projeto Definitivamente
+        </button>
+      </div>
+    ` : ''}
   `;
 
   if (tab === 'editor' && isTextDoc && canWrite) {
@@ -1638,6 +1653,35 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
     loadEditorialPdfPreview(repo, mainDoc);
   }
 }
+
+window.handleDeleteFile = async function(repo, filename) {
+  if (!confirm(`Tem certeza que deseja remover o arquivo '${filename}' do repositório Git? Esta ação registrará um commit de exclusão.`)) return;
+  try {
+    showToast(`⏳ Removendo '${filename}'...`);
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/delete-file`, { filename });
+    showToast(`✓ Arquivo '${filename}' removido com sucesso.`);
+    window.location.reload();
+  } catch (err) {
+    alert('Erro ao remover arquivo: ' + err.message);
+  }
+};
+
+window.handleDeleteProject = async function(repo) {
+  const typed = prompt(`ATENÇÃO: A exclusão do projeto é irreversível!\n\nPara confirmar a exclusão permanente de '${repo}', digite exatamente o identificador do projeto abaixo:`);
+  if (!typed) return;
+  if (typed.trim() !== repo) {
+    alert('O nome digitado não corresponde. Exclusão cancelada.');
+    return;
+  }
+  try {
+    showToast(`⏳ Excluindo projeto '${repo}'...`);
+    await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/delete`, { confirm_name: repo });
+    showToast(`✓ Projeto '${repo}' excluído definitivamente.`);
+    window.location.hash = '#/editorial';
+  } catch (err) {
+    alert('Erro ao excluir projeto: ' + err.message);
+  }
+};
 
 window.loadEditorialPdfPreview = async function(repo, filename) {
   const frame = document.querySelector('#editorialPdfFrame');
