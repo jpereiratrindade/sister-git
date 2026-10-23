@@ -2013,6 +2013,7 @@ window.handleDeleteProject = async function(repo) {
   try {
     showToast(`⏳ Excluindo projeto '${repo}'...`);
     await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/delete`, { confirm_name: repo });
+    try { localStorage.removeItem('sister_draft_' + repo); } catch (_) {}
     showToast(`✓ Projeto '${repo}' excluído definitivamente.`);
     window.location.hash = '#/editorial';
   } catch (err) {
@@ -2742,7 +2743,7 @@ window.handleCreateProject = async function(e) {
     closeModal('modalNewProject');
     showToast(`✓ Projeto '${name}' criado com sucesso no SisTer Git!`);
     if (type === 'editorial') {
-      location.hash = `#/editorial/${encodeURIComponent(name)}/editor`;
+      location.hash = `#/editorial/${encodeURIComponent(name)}/manuscript`;
     } else {
       location.hash = `#/r/${encodeURIComponent(name)}/code`;
     }

@@ -916,15 +916,13 @@ static Response create_repo(const std::string &name, const std::string &type, co
   std::string auth_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
 
   if (type == "editorial") {
-    std::string doc_abstract = description.empty() ? "Inicie aqui o resumo do seu artigo ou relatório de pesquisa." : description;
+    std::string doc_abstract = description;
     std::string init_doc = "# " + doc_title + "\n\n"
                            "**" + auth_name + "**  \n"
-                           "*Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)*\n\n---\n\n"
-                           "## Resumo\n\n" + doc_abstract + "\n\n---\n\n"
-                           "## 1. Introdução\n\nDescreva a contextualização, o problema ecológico e as hipóteses investigadas.\n\n"
-                           "## 2. Metodologia e Delineamento Amostral\n\nDetalhe os procedimentos experimentais, coleta de dados botânicos e análises estatísticas.\n\n"
-                           "## 3. Resultados e Discussão\n\nApresente suas evidências empíricas com gráficos, tabelas e referências.\n\n"
-                           "## 4. Considerações Finais\n\n*Sempre pronto. Sempre incompleto!*\n";
+                           "*Laboratório de Estudos em AgroEcologia e Recursos Naturais (LABECO)*\n\n";
+    if (!doc_abstract.empty()) {
+      init_doc += "---\n\n## Resumo\n\n" + doc_abstract + "\n";
+    }
 
     std::string init_manifest = "{\n"
                                 "  \"$schema\": \"https://sister-git.labeco.org/schemas/editorial-v1.json\",\n"
