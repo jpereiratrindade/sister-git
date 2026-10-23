@@ -1,5 +1,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++26 -O2 -Wall -Wextra -Wpedantic
+VERSION := $(shell tr -d '[:space:]' < VERSION)
+CPPFLAGS += -DSISTER_GIT_VERSION='"$(VERSION)"'
 
 .PHONY: all test test-e2e clean deploy-srv
 
@@ -7,7 +9,7 @@ all: build/sister-git-web
 
 build/sister-git-web: src/sister_git_web.cpp
 	mkdir -p build
-	$(CXX) $(CXXFLAGS) $< -o $@ -lsqlite3
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@ -lsqlite3
 
 test: all
 	bash tests/test_security.sh
