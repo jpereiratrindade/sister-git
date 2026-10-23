@@ -11,12 +11,14 @@ git -C "$TMP/work" config user.email 'teste@example.invalid'
 printf '# MORFO\n\nInterface de teste.\n' > "$TMP/work/README.md"
 printf 'int main() { return 0; }\n' > "$TMP/work/src/main.cpp"
 printf '\0binario' > "$TMP/work/image.bin"
-printf '%%PDF-1.7\nversao um\n\0fim\n' > "$TMP/work/manual.pdf"
+printf '%%!PS\n/Times-Roman findfont 12 scalefont setfont 72 720 moveto (versao um) show showpage\n' > "$TMP/manual.ps"
+ps2pdf "$TMP/manual.ps" "$TMP/work/manual.pdf"
 git -C "$TMP/work" add . && git -C "$TMP/work" commit -qm 'Primeira versão'
 git -C "$TMP/work" tag v0.1.0
 git -C "$TMP/work" push -q "$TMP/repos/MORFO.git" main --tags
 printf '// segunda\n' >> "$TMP/work/src/main.cpp"
-printf '%%PDF-1.7\nversao dois alterada\n\0fim\n' > "$TMP/work/manual.pdf"
+printf '%%!PS\n/Times-Roman findfont 12 scalefont setfont 72 720 moveto (versao dois alterada) show showpage\n' > "$TMP/manual.ps"
+ps2pdf "$TMP/manual.ps" "$TMP/work/manual.pdf"
 git -C "$TMP/work" commit -qam 'Evolui código'
 git -C "$TMP/work" push -q "$TMP/repos/MORFO.git" main
 PORT=$((20000 + RANDOM % 20000))
@@ -44,6 +46,9 @@ assert pdf['binary'] is True and pdf['kind'] == 'pdf'
 assert pdf['base_blob']['exists'] and pdf['head_blob']['exists']
 assert pdf['base_blob']['oid'] != pdf['head_blob']['oid']
 assert pdf['base_blob']['size'] > 0 and pdf['head_blob']['size'] > 0
+assert pdf['text_diff_status'] == 'ok', pdf
+assert pdf['text_additions'] > 0 and pdf['text_deletions'] > 0
+assert any(line['type'] == 'add' and 'versao dois alterada' in line['text'] for line in pdf['text_lines'])
 PY
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 401 ]]

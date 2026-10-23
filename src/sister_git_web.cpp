@@ -1117,6 +1117,57 @@ static Response blob(const std::string &name, const std::map<std::string, std::s
   return {200, "application/json; charset=utf-8", "{\"path\":" + json(path) + ",\"binary\":" + (bin ? "true" : "false") + ",\"size\":" + std::to_string(r.out.size()) + ",\"content\":" + (bin ? "null" : json(r.out)) + "}"};
 }
 
+static Result pdf_text_at_revision(const std::string &name, const std::string &revision, const std::string &path) {
+  auto blob = run({"git", "--git-dir=" + git_dir(name), "show", revision + ":" + path}, 64 * 1024 * 1024);
+  if (blob.status != 0) return {2, "Arquivo ausente nesta revisão"};
+  char pdf_path[] = "/tmp/sister-pdf-source-XXXXXX";
+  int fd = mkstemp(pdf_path);
+  if (fd < 0) return {127, "Falha ao criar PDF temporário seguro"};
+  size_t done = 0;
+  bool written = true;
+  while (done < blob.out.size()) {
+    ssize_t n = write(fd, blob.out.data() + done, blob.out.size() - done);
+    if (n > 0) done += static_cast<size_t>(n);
+    else if (n < 0 && errno == EINTR) continue;
+    else { written = false; break; }
+  }
+  close(fd);
+  auto text = written ? run({"pdftotext", "-layout", "-enc", "UTF-8", pdf_path, "-"}, 16 * 1024 * 1024)
+                      : Result{127, "Falha ao gravar PDF temporário"};
+  unlink(pdf_path);
+  if (text.status != 0) return {text.status == 127 ? 127 : 3, text.out};
+  if (text.out.find_first_not_of(" \t\r\n\f") == std::string::npos) return {4, "PDF sem camada textual extraível"};
+  return text;
+}
+
+static Result unified_text_diff(const std::string &base_text, const std::string &head_text) {
+  char base_path[] = "/tmp/sister-pdf-base-XXXXXX";
+  char head_path[] = "/tmp/sister-pdf-head-XXXXXX";
+  int base_fd = mkstemp(base_path), head_fd = mkstemp(head_path);
+  if (base_fd < 0 || head_fd < 0) {
+    if (base_fd >= 0) { close(base_fd); unlink(base_path); }
+    if (head_fd >= 0) { close(head_fd); unlink(head_path); }
+    return {127, "Falha ao criar arquivos temporários seguros"};
+  }
+  auto write_content = [](int fd, const std::string &content) {
+    size_t done = 0;
+    while (done < content.size()) {
+      ssize_t n = write(fd, content.data() + done, content.size() - done);
+      if (n > 0) done += static_cast<size_t>(n);
+      else if (n < 0 && errno == EINTR) continue;
+      else return false;
+    }
+    return true;
+  };
+  bool written = write_content(base_fd, base_text) && write_content(head_fd, head_text);
+  close(base_fd); close(head_fd);
+  Result result = written ? run({"diff", "-U3", "--label", "PDF base", "--label", "PDF alvo", base_path, head_path}, 16 * 1024 * 1024)
+                          : Result{127, "Falha ao gravar texto temporário"};
+  unlink(base_path); unlink(head_path);
+  if (result.status == 1) result.status = 0; // diff encontrou alterações
+  return result;
+}
+
 static Response compare(const std::string &name, const std::map<std::string, std::string> &q) {
   std::string base = q.count("base") ? q.at("base") : "", head = q.count("head") ? q.at("head") : "";
   if (!valid_revision(base) || !valid_revision(head)) return error(400, "Revisões inválidas");
@@ -1138,6 +1189,30 @@ static Response compare(const std::string &name, const std::map<std::string, std
     std::string lower_path = cur_path;
     std::transform(lower_path.begin(), lower_path.end(), lower_path.begin(), [](unsigned char c) { return std::tolower(c); });
     bool is_pdf = lower_path.size() >= 4 && lower_path.substr(lower_path.size() - 4) == ".pdf";
+    std::string pdf_text_status, pdf_text_error;
+    std::vector<std::pair<std::string, std::string>> pdf_text_lines;
+    size_t pdf_add = 0, pdf_del = 0;
+    if (is_pdf) {
+      auto base_text = pdf_text_at_revision(name, base, cur_path);
+      auto head_text = pdf_text_at_revision(name, head, cur_path);
+      if ((base_text.status == 0 || base_text.status == 2) && (head_text.status == 0 || head_text.status == 2)) {
+        auto text_diff = unified_text_diff(base_text.status == 0 ? base_text.out : "", head_text.status == 0 ? head_text.out : "");
+        if (text_diff.status == 0) {
+          pdf_text_status = "ok";
+          for (const auto &line : lines(text_diff.out)) {
+            if (line.rfind("--- ", 0) == 0 || line.rfind("+++ ", 0) == 0) continue;
+            if (line.rfind("@@", 0) == 0) pdf_text_lines.push_back({"hunk", line});
+            else if (!line.empty() && line[0] == '+') { pdf_text_lines.push_back({"add", line.substr(1)}); ++pdf_add; }
+            else if (!line.empty() && line[0] == '-') { pdf_text_lines.push_back({"del", line.substr(1)}); ++pdf_del; }
+            else if (!line.empty() && line[0] == ' ') pdf_text_lines.push_back({"ctx", line.substr(1)});
+          }
+        } else { pdf_text_status = "error"; pdf_text_error = text_diff.out; }
+      } else {
+        int status = base_text.status != 0 && base_text.status != 2 ? base_text.status : head_text.status;
+        pdf_text_status = status == 127 ? "unavailable" : (status == 4 ? "no_text" : "error");
+        pdf_text_error = base_text.status != 0 && base_text.status != 2 ? base_text.out : head_text.out;
+      }
+    }
     auto blob_meta = [&](const std::string &revision) {
       std::string spec = revision + ":" + cur_path;
       auto oid = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "--verify", spec});
@@ -1153,7 +1228,17 @@ static Response compare(const std::string &name, const std::map<std::string, std
     b += "{\"path\":" + json(cur_path) + ",\"additions\":" + std::to_string(cur_add) +
          ",\"deletions\":" + std::to_string(cur_del) + ",\"binary\":" + (cur_binary || is_pdf ? "true" : "false") +
          ",\"kind\":" + json(is_pdf ? "pdf" : (cur_binary ? "binary" : "text"));
-    if (is_pdf) b += ",\"base_blob\":" + blob_meta(base) + ",\"head_blob\":" + blob_meta(head);
+    if (is_pdf) {
+      b += ",\"base_blob\":" + blob_meta(base) + ",\"head_blob\":" + blob_meta(head) +
+           ",\"text_diff_status\":" + json(pdf_text_status) + ",\"text_diff_error\":" + json(pdf_text_error) +
+           ",\"text_additions\":" + std::to_string(pdf_add) + ",\"text_deletions\":" + std::to_string(pdf_del) +
+           ",\"text_lines\":[";
+      for (size_t i = 0; i < pdf_text_lines.size(); ++i) {
+        if (i) b += ',';
+        b += "{\"type\":" + json(pdf_text_lines[i].first) + ",\"text\":" + json(pdf_text_lines[i].second) + "}";
+      }
+      b += "]";
+    }
     b += ",\"lines\":[";
     for (size_t i = 0; i < cur_lines.size(); i++) {
       if (i > 0) b += ',';

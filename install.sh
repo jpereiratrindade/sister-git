@@ -14,6 +14,9 @@ group="$(id -gn "$owner")"
 command -v git >/dev/null || {
   echo '[ERRO] Git não instalado. Execute: sudo dnf5 install -y git' >&2; exit 1;
 }
+command -v pdftotext >/dev/null || {
+  echo '[AVISO] pdftotext ausente: diff textual automatizado de PDF ficará indisponível. Instale: sudo dnf5 install -y poppler-utils' >&2
+}
 if [[ -L /srv/git ]]; then
   echo '[ERRO] /srv/git é link simbólico: instalação recusada' >&2; exit 1
 fi

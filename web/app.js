@@ -996,17 +996,29 @@ function renderPdfDiff(repo, file, base, head) {
         <iframe class="pdf-diff-frame" data-src="${esc(rawUrl)}" title="${esc(label)} de ${esc(file.path)}"></iframe>
       </div>`;
   };
+  const automated = file.text_diff_status === 'ok'
+    ? `<div class="pdf-text-diff">
+         <div class="pdf-text-diff-head"><strong>Diff textual automatizado</strong><span class="editorial-diff-stat-add">+${file.text_additions || 0}</span><span class="editorial-diff-stat-del">-${file.text_deletions || 0}</span></div>
+         <div class="editorial-prose-container">${file.text_lines?.length ? renderEditorialProseDiff(file.text_lines) : '<div class="pdf-diff-ok">✓ Camada textual extraída sem alterações.</div>'}</div>
+       </div>`
+    : `<div class="pdf-diff-automation-error">
+         <strong>${file.text_diff_status === 'no_text' ? 'OCR necessário' : 'Diff automatizado indisponível'}</strong>
+         <span>${file.text_diff_status === 'no_text' ? 'PDF não contém camada textual. Execute OCR antes de publicar para permitir auditoria automática.' : esc(file.text_diff_error || 'Instale pdftotext (poppler-utils) no servidor.')}</span>
+       </div>`;
   return `
     <section class="pdf-diff-card">
       <div class="pdf-diff-header">
         <div><strong>📕 ${esc(file.path)}</strong><span>Comparação visual de PDF</span></div>
         <span class="pdf-diff-binary-badge">Binário rastreado pelo Git</span>
       </div>
-      <div class="pdf-diff-notice">PDF não possui diff textual nativo. Compare visualmente as duas versões; hash e tamanho confirmam alteração do objeto Git.</div>
+      ${automated}
+      <details class="pdf-visual-details">
+        <summary>Comparação visual complementar</summary>
       <div class="pdf-diff-grid">
         ${side('Base', base, file.base_blob, 'is-base')}
         ${side('Alvo', head, file.head_blob, 'is-head')}
       </div>
+      </details>
     </section>`;
 }
 

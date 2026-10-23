@@ -35,7 +35,7 @@ scp -r sister-git usuario@servidor:~/
 No servidor remoto (ex.: nó de hospedagem), na conta do usuário:
 
 ```bash
-sudo dnf5 install -y git
+sudo dnf5 install -y git poppler-utils
 bash ~/sister-git/install.sh
 sister-git init MEUPROJETO
 sister-git info MEUPROJETO
