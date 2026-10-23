@@ -1176,8 +1176,7 @@ static bool is_pdf_path(std::string path) {
 // Editorial uploads may preserve old files and, in older clients, leave
 // document_main pointing at the first manuscript.  The PDF changed by each
 // commit is then the best evidence of the logical revision being compared.
-static std::string editorial_pdf_at_commit(const std::string &name, const std::string &revision,
-                                           const std::string &manifest_path) {
+static std::vector<std::string> changed_pdfs_at_commit(const std::string &name, const std::string &revision) {
   auto changed = run({"git", "--git-dir=" + git_dir(name), "diff-tree", "--root", "--no-commit-id",
                       "--name-only", "-r", "-z", revision, "--"}, 4 * 1024 * 1024);
   std::vector<std::string> pdfs;
@@ -1191,6 +1190,12 @@ static std::string editorial_pdf_at_commit(const std::string &name, const std::s
       start = end + 1;
     }
   }
+  return pdfs;
+}
+
+static std::string editorial_pdf_at_commit(const std::string &name, const std::string &revision,
+                                           const std::string &manifest_path) {
+  auto pdfs = changed_pdfs_at_commit(name, revision);
   if (pdfs.size() == 1) return pdfs.front();
   if (is_pdf_path(manifest_path)) {
     auto exists = run({"git", "--git-dir=" + git_dir(name), "cat-file", "-e", revision + ":" + manifest_path});
@@ -1349,18 +1354,44 @@ static Response compare(const std::string &name, const std::map<std::string, std
   }
   flush_file();
   std::string relation = "null";
+  std::string relations = "[]";
   if (repo_type(name) == "editorial") {
     auto base_manifest = run({"git", "--git-dir=" + git_dir(name), "show", base + ":.sister-editorial.json"});
     auto head_manifest = run({"git", "--git-dir=" + git_dir(name), "show", head + ":.sister-editorial.json"});
     std::string base_main = base_manifest.status == 0 ? json_extract(base_manifest.out, "document_main") : "";
     std::string head_main = head_manifest.status == 0 ? json_extract(head_manifest.out, "document_main") : "";
-    base_main = editorial_pdf_at_commit(name, base, base_main);
-    head_main = editorial_pdf_at_commit(name, head, head_main);
-    if (base_main != head_main && (is_pdf_path(base_main) || is_pdf_path(head_main))) {
-      relation = pdf_document_relation(name, base, base_main, head, head_main);
+    std::string current_path = editorial_pdf_at_commit(name, base, base_main);
+    std::string current_ref = base;
+    auto commits = run({"git", "--git-dir=" + git_dir(name), "rev-list", "--reverse", base + ".." + head});
+    std::vector<std::string> chain;
+    if (commits.status == 0) {
+      for (const auto &commit : lines(commits.out)) {
+        auto changed_pdfs = changed_pdfs_at_commit(name, commit);
+        if (changed_pdfs.size() != 1) continue;
+        std::string next_path = changed_pdfs.front();
+        chain.push_back(pdf_document_relation(name, current_ref, current_path, commit, next_path));
+        current_path = next_path;
+        current_ref = commit;
+      }
+    }
+    if (!chain.empty()) {
+      relations = "[";
+      for (size_t i = 0; i < chain.size(); ++i) {
+        if (i) relations += ',';
+        relations += chain[i];
+      }
+      relations += ']';
+      relation = chain.back(); // Compatibilidade com clientes anteriores.
+    } else {
+      std::string resolved_head = editorial_pdf_at_commit(name, head, head_main);
+      if (current_path != resolved_head && (is_pdf_path(current_path) || is_pdf_path(resolved_head))) {
+        relation = pdf_document_relation(name, base, current_path, head, resolved_head);
+        relations = "[" + relation + "]";
+      }
     }
   }
-  return {200, "application/json; charset=utf-8", b + "],\"document_relation\":" + relation + "}"};
+  return {200, "application/json; charset=utf-8", b + "],\"document_relation\":" + relation +
+          ",\"document_relations\":" + relations + "}"};
 }
 
 static Response editorial(const std::string &name, const AuthUser &user) {

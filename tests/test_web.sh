@@ -28,6 +28,8 @@ git init -q --bare --initial-branch=main "$TMP/repos/editorial-rel.git"
 git -C "$TMP/relation-work" init -q -b main
 git -C "$TMP/relation-work" config user.name 'LABECO Teste'
 git -C "$TMP/relation-work" config user.email 'teste@example.invalid'
+printf '{"schema_version":1,"project_type":"editorial","document_main":"","current_stage":"draft"}\n' > "$TMP/relation-work/.sister-editorial.json"
+git -C "$TMP/relation-work" add . && git -C "$TMP/relation-work" commit -qm 'inicia projeto editorial'
 printf '%%!PS\n/Times-Roman findfont 12 scalefont setfont 72 720 moveto (revisao um) show showpage\n' > "$TMP/relation.ps"
 ps2pdf "$TMP/relation.ps" "$TMP/relation-work/documento-R1.pdf"
 printf '{"schema_version":1,"project_type":"editorial","document_main":"documento-R1.pdf","current_stage":"draft"}\n' > "$TMP/relation-work/.sister-editorial.json"
@@ -77,6 +79,17 @@ assert relation['base_path'] == 'documento-R1.pdf'
 assert relation['head_path'] == 'documento-R2.pdf'
 assert relation['text_diff_status'] == 'ok'
 assert relation['text_additions'] > 0 and relation['text_deletions'] > 0
+PY
+curl -fsS -H 'Authorization: Bearer core-test-token' "http://127.0.0.1:$PORT/api/v1/repos/editorial-rel/compare?base=HEAD~2&head=HEAD" > "$TMP/pdf-chain.json"
+python3 - "$TMP/pdf-chain.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding='utf-8'))
+relations = data['document_relations']
+assert len(relations) == 2, relations
+assert relations[0]['change'] == 'added' and relations[0]['head_path'] == 'documento-R1.pdf'
+assert relations[1]['change'] == 'revised'
+assert relations[1]['base_path'] == 'documento-R1.pdf'
+assert relations[1]['head_path'] == 'documento-R2.pdf'
 PY
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 401 ]]

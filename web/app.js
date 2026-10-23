@@ -1071,12 +1071,13 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
 
   const diffData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(effectiveBase)}&head=${encodeURIComponent(effectiveHead)}`).catch(() => ({ files: [] }));
   let files = diffData.files || [];
-  const logicalDocument = diffData.document_relation;
-  if (logicalDocument) {
-    if (logicalDocument.change === 'revised') {
-      files = files.filter(f => f.path !== logicalDocument.base_path && f.path !== logicalDocument.head_path);
-    }
-    files.unshift(logicalDocument);
+  const logicalDocuments = diffData.document_relations?.length
+    ? diffData.document_relations
+    : (diffData.document_relation ? [diffData.document_relation] : []);
+  if (logicalDocuments.length) {
+    const relatedPaths = new Set(logicalDocuments.flatMap(d => [d.base_path, d.head_path]).filter(Boolean));
+    files = files.filter(f => !relatedPaths.has(f.path));
+    files.unshift(...logicalDocuments);
   }
 
   const docFiles = files.filter(f => !isMetaFile(f.path));
