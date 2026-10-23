@@ -1804,6 +1804,59 @@ main#app {
   border-radius: var(--radius-lg);
   background: #f0f9ff;
 }
+.editorial-history-card {
+  margin: 0 0 18px;
+  overflow: hidden;
+  border: 1px solid #a7f3d0;
+  border-radius: var(--radius-lg);
+  background: #fff;
+}
+.editorial-history-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #d1fae5;
+  background: #ecfdf5;
+  color: var(--navy);
+}
+.editorial-history-heading > div { display: flex; align-items: baseline; gap: 8px; }
+.editorial-history-heading span, .editorial-history-heading small { color: var(--muted); font-size: .76rem; }
+.editorial-history-list { margin: 0; padding: 14px 18px; list-style: none; }
+.editorial-history-list li { position: relative; display: flex; gap: 12px; padding: 0 0 16px; }
+.editorial-history-list li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 24px;
+  bottom: 0;
+  left: 11px;
+  width: 2px;
+  background: #a7f3d0;
+}
+.editorial-history-index {
+  position: relative;
+  z-index: 1;
+  display: inline-grid;
+  flex: 0 0 24px;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #0f766e;
+  color: #fff;
+  font-size: .7rem;
+  font-weight: 700;
+}
+.editorial-history-event { min-width: 0; flex: 1; }
+.editorial-history-event-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.editorial-history-event-head strong { color: var(--navy); font-size: .84rem; }
+.editorial-history-event-head code, .editorial-history-event-head time { color: var(--muted); font-size: .72rem; }
+.editorial-history-subject { margin: 3px 0; color: #334155; font-size: .8rem; }
+.editorial-history-context { display: flex; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: .73rem; }
+.editorial-lineage-change { color: #0f766e; font-weight: 700; }
+.editorial-history-files { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.editorial-history-files span { padding: 2px 6px; border-radius: 4px; background: #f1f5f9; color: #475569; font-size: .68rem; }
 .compare-document-nav-title {
   display: flex;
   align-items: baseline;
@@ -1849,6 +1902,7 @@ main#app {
 
 @media (max-width: 720px) {
   .compare-document-nav-title { align-items: flex-start; flex-direction: column; }
+  .editorial-history-heading, .editorial-history-heading > div { align-items: flex-start; flex-direction: column; }
 }
 
 /* Modo Visual Editorial (Estilo Manuscrito / Controle de Alterações) */

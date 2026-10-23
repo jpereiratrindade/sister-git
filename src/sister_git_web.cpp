@@ -586,7 +586,7 @@ static bool migrate_manifest_v1(std::string &manifest, const std::string &repo, 
       !add("title", json(repo)) || !add("document_main", json("manuscrito.md")) ||
       !add("current_stage", json("draft")) || !add("reviews", "[]") ||
       !add("responses", "[]") || !add("decisions", "[]") ||
-      !add("transitions", "[]") || !add("editions", "[]")) {
+      !add("transitions", "[]") || !add("editions", "[]") || !add("document_history", "[]")) {
     error_message = "Falha ao normalizar manifesto editorial v1";
     return false;
   }
@@ -1010,6 +1010,7 @@ static Response create_repo(const std::string &name, const std::string &type, co
                                 "  \"responses\": [],\n"
                                 "  \"decisions\": [],\n"
                                 "  \"transitions\": [],\n"
+                                "  \"document_history\": [],\n"
                                 "  \"editions\": []\n"
                                 "}\n";
 
@@ -1224,6 +1225,73 @@ static std::vector<std::string> changed_pdfs_at_commit(const std::string &name, 
   return pdfs;
 }
 
+static std::vector<std::string> changed_documents_at_commit(const std::string &name, const std::string &revision) {
+  auto changed = run({"git", "--git-dir=" + git_dir(name), "diff-tree", "--root", "--no-commit-id",
+                      "--name-only", "-r", "-z", revision, "--"}, 4 * 1024 * 1024);
+  std::vector<std::string> documents;
+  if (changed.status != 0) return documents;
+  size_t start = 0;
+  while (start < changed.out.size()) {
+    size_t end = changed.out.find('\0', start);
+    if (end == std::string::npos) end = changed.out.size();
+    std::string path = changed.out.substr(start, end - start);
+    if (!path.empty() && path != ".sister-editorial.json" && path != ".sister-research.json") {
+      documents.push_back(path);
+    }
+    start = end + 1;
+  }
+  return documents;
+}
+
+// Reconstruct the editorial meaning of every commit in the selected interval.
+// Git supplies chronology; document_main supplies the manuscript lineage.
+static std::string editorial_history(const std::string &name, const std::string &base, const std::string &head) {
+  auto revisions = run({"git", "--git-dir=" + git_dir(name), "rev-list", "--reverse", "--ancestry-path", base + ".." + head});
+  if (revisions.status != 0) return "[]";
+  std::string result = "[";
+  bool first = true;
+  for (const auto &commit : lines(revisions.out)) {
+    if (commit.empty()) continue;
+    auto info = run({"git", "--git-dir=" + git_dir(name), "show", "-s", "--format=%H%x00%P%x00%aI%x00%an%x00%s", commit});
+    if (info.status != 0) continue;
+    std::vector<std::string> fields;
+    size_t start = 0;
+    for (size_t i = 0; i <= info.out.size(); ++i) {
+      if (i == info.out.size() || info.out[i] == '\0') {
+        fields.push_back(info.out.substr(start, i - start));
+        start = i + 1;
+      }
+    }
+    if (fields.size() < 5) continue;
+    while (!fields[4].empty() && std::isspace(static_cast<unsigned char>(fields[4].back()))) fields[4].pop_back();
+    std::string parent = fields[1];
+    size_t parent_space = parent.find(' ');
+    if (parent_space != std::string::npos) parent.resize(parent_space);
+    auto manifest = run({"git", "--git-dir=" + git_dir(name), "show", commit + ":.sister-editorial.json"});
+    auto previous_manifest = parent.empty() ? Result{2, ""} : run({"git", "--git-dir=" + git_dir(name), "show", parent + ":.sister-editorial.json"});
+    std::string main_document = manifest.status == 0 ? json_extract(manifest.out, "document_main") : "";
+    std::string previous_main = previous_manifest.status == 0 ? json_extract(previous_manifest.out, "document_main") : "";
+    auto documents = changed_documents_at_commit(name, commit);
+    bool main_changed = main_document != previous_main;
+    bool main_touched = !main_document.empty() && std::find(documents.begin(), documents.end(), main_document) != documents.end();
+    std::string event = main_changed ? "main_document_selected" : (main_touched ? "main_document_revised" : "supporting_documents_changed");
+    if (!first) result += ',';
+    first = false;
+    result += "{\"commit\":" + json(fields[0]) + ",\"short_hash\":" + json(fields[0].substr(0, 8)) +
+              ",\"parent\":" + json(parent) + ",\"date\":" + json(fields[2]) + ",\"author\":" + json(fields[3]) +
+              ",\"subject\":" + json(fields[4]) + ",\"event\":" + json(event) +
+              ",\"main_document\":" + json(main_document) + ",\"previous_main_document\":" + json(previous_main) +
+              ",\"documents\":[";
+    for (size_t i = 0; i < documents.size(); ++i) {
+      if (i) result += ',';
+      result += json(documents[i]);
+    }
+    result += "]}";
+  }
+  result += ']';
+  return result;
+}
+
 static std::string editorial_pdf_at_commit(const std::string &name, const std::string &revision,
                                            const std::string &manifest_path) {
   auto pdfs = changed_pdfs_at_commit(name, revision);
@@ -1386,7 +1454,9 @@ static Response compare(const std::string &name, const std::map<std::string, std
   flush_file();
   std::string relation = "null";
   std::string relations = "[]";
+  std::string history = "[]";
   if (repo_type(name) == "editorial") {
+    history = editorial_history(name, base, head);
     auto base_manifest = run({"git", "--git-dir=" + git_dir(name), "show", base + ":.sister-editorial.json"});
     auto head_manifest = run({"git", "--git-dir=" + git_dir(name), "show", head + ":.sister-editorial.json"});
     std::string base_main = base_manifest.status == 0 ? json_extract(base_manifest.out, "document_main") : "";
@@ -1422,7 +1492,7 @@ static Response compare(const std::string &name, const std::map<std::string, std
     }
   }
   return {200, "application/json; charset=utf-8", b + "],\"document_relation\":" + relation +
-          ",\"document_relations\":" + relations + "}"};
+          ",\"document_relations\":" + relations + ",\"editorial_history\":" + history + "}"};
 }
 
 static Response editorial(const std::string &name, const AuthUser &user) {
@@ -2209,7 +2279,17 @@ static Response route_post(const std::string &target, const std::string &headers
       if (message.empty()) message = "docs(editorial): update manuscript version";
 
       std::string author_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
-      auto r = git_commit_file(name, filename, content, message, author, author_email, true, expected_head);
+      auto manifest_result = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
+      if (manifest_result.status != 0 || !valid_json_object(manifest_result.out)) return error(409, "Manifesto editorial ausente ou inválido");
+      std::string manifest = manifest_result.out;
+      std::string current_main = json_extract(manifest, "document_main");
+      std::string relation = current_main == filename ? "new_revision" : "independent_document";
+      std::string event = "{\"path\":" + json(filename) + ",\"relation\":" + json(relation) +
+                          ",\"previous_path\":" + json(current_main == filename ? filename : "") +
+                          ",\"actor\":" + json(author_email) + ",\"date\":" + json(iso_now()) + "}";
+      if (!json_append_object(manifest, "document_history", event)) return error(409, "Falha ao registrar proveniência documental");
+      std::vector<FileUpdate> updates = {{filename, content, false}, {".sister-editorial.json", manifest, true}};
+      auto r = git_commit_files(name, updates, message, author, author_email, expected_head);
       if (r.status != 0) return error(r.status == 409 ? 409 : 500, r.out);
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"commit\":" + json(r.out) + ",\"short_hash\":" + json(r.out.substr(0, 7)) + "}"};
     }
@@ -2438,10 +2518,14 @@ static Response route_post(const std::string &target, const std::string &headers
       std::string author_name = user.name.empty() ? "Pesquisador LABECO" : user.name;
       std::string author_email = user.email.empty() ? "editorial@labeco.invalid" : user.email;
       std::vector<FileUpdate> updates = {{filename, content, false}};
+      auto m_res = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
+      if (m_res.status != 0 || !valid_json_object(m_res.out)) return error(409, "Manifesto editorial ausente ou inválido; upload cancelado");
+      std::string m = m_res.out;
+      std::string previous_main = json_extract(m, "document_main");
+      std::string relation = is_main == "true"
+          ? (previous_main.empty() ? "new_document" : (previous_main == filename ? "new_revision" : "replaces"))
+          : "supporting_document";
       if (is_main == "true") {
-        auto m_res = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
-        if (m_res.status != 0 || !valid_json_object(m_res.out)) return error(409, "Manifesto editorial ausente ou inválido; upload principal cancelado");
-        std::string m = m_res.out;
         size_t doc_main_pos = m.find("\"document_main\":");
         if (doc_main_pos != std::string::npos) {
           size_t val_start = m.find('"', doc_main_pos + 16);
@@ -2453,12 +2537,16 @@ static Response route_post(const std::string &target, const std::string &headers
           m.insert(brace + 1, "\n  \"document_main\": " + json(filename) + ",");
         }
         if (!valid_json_object(m)) return error(409, "Não foi possível atualizar document_main com segurança");
-        updates.push_back({".sister-editorial.json", m, true});
       }
+      std::string history_event = "{\"path\":" + json(filename) + ",\"relation\":" + json(relation) +
+                                  ",\"previous_path\":" + json((relation == "replaces" || relation == "new_revision") ? previous_main : "") +
+                                  ",\"actor\":" + json(author_email) + ",\"date\":" + json(iso_now()) + "}";
+      if (!json_append_object(m, "document_history", history_event)) return error(409, "Falha ao registrar proveniência documental");
+      updates.push_back({".sister-editorial.json", m, true});
 
       auto r = git_commit_files(name, updates, commit_msg, author_name, author_email, expected_head);
       if (r.status != 0) return error(r.status == 409 ? 409 : 500, "Falha ao gravar upload atômico: " + r.out);
-      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"filename\":" + json(filename) + ",\"commit\":" + json(r.out) + "}"};
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"filename\":" + json(filename) + ",\"relation\":" + json(relation) + ",\"commit\":" + json(r.out) + "}"};
     }
 
     return error(404, "Ação não encontrada");

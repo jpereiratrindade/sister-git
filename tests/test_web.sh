@@ -415,9 +415,11 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   -d "{\"filename\":\"artigo-completo.docx\",\"content_base64\":\"$B64_SAMPLE\",\"commit_msg\":\"Upload do manuscrito original em DOCX\",\"is_main\":\"true\"}" \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload" > "$TMP/upload_resp.json"
 grep -q '"ok":true' "$TMP/upload_resp.json"
+grep -q '"relation":"replaces"' "$TMP/upload_resp.json"
 AFTER_UPLOAD="$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)"
 [[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-list --count "$BEFORE_UPLOAD..$AFTER_UPLOAD")" == 1 ]]
 git --git-dir="$TMP/repos/artigo-teste.git" show "$AFTER_UPLOAD:.sister-editorial.json" | grep -q 'artigo-completo.docx'
+git --git-dir="$TMP/repos/artigo-teste.git" show "$AFTER_UPLOAD:.sister-editorial.json" | grep -q '"relation":"replaces"'
 
 # Cliente baseado em HEAD antigo recebe 409 e não altera a referência principal.
 [[ "$(curl -s -o "$TMP/stale-write.json" -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
@@ -458,12 +460,27 @@ for SAMPLE in amostra.odt amostra.pdf amostra.png amostra.bin; do
     -d "{\"filename\":\"$SAMPLE\",\"content_base64\":\"$SAMPLE_B64\",\"commit_msg\":\"Teste de integridade $SAMPLE\",\"is_main\":false}" \
     "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload" > "$TMP/upload-$SAMPLE.json"
   grep -q '"ok":true' "$TMP/upload-$SAMPLE.json"
+  grep -q '"relation":"supporting_document"' "$TMP/upload-$SAMPLE.json"
   git --git-dir="$TMP/repos/artigo-teste.git" show "HEAD:$SAMPLE" > "$TMP/blob-$SAMPLE"
   curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=$SAMPLE" > "$TMP/download-$SAMPLE"
   ORIGINAL_SHA="$(sha256sum "$TMP/$SAMPLE" | cut -d' ' -f1)"
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/blob-$SAMPLE" | cut -d' ' -f1)" ]]
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/download-$SAMPLE" | cut -d' ' -f1)" ]]
 done
+
+# A comparação editorial reconstrói todos os commits, sem confundir anexos com revisões do principal.
+curl -fsS -H "Authorization: Bearer test-token-123" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/compare?base=$BEFORE_UPLOAD&head=HEAD" > "$TMP/editorial-history.json"
+python3 - "$TMP/editorial-history.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+history = data['editorial_history']
+assert len(history) >= 5, history
+assert history[0]['event'] == 'main_document_selected', history[0]
+assert history[0]['previous_main_document'] == 'manuscrito.md', history[0]
+assert history[0]['main_document'] == 'artigo-completo.docx', history[0]
+assert any(e['event'] == 'supporting_documents_changed' and 'amostra.odt' in e['documents'] for e in history), history
+PY
 
 # Remover usuário revoga imediatamente todas as sessões existentes.
 curl -fsS -H "Authorization: Bearer $OTP_TOKEN" -H "Content-Type: application/json" \

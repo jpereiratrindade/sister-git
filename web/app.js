@@ -1071,6 +1071,7 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
 
   const diffData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(effectiveBase)}&head=${encodeURIComponent(effectiveHead)}`).catch(() => ({ files: [] }));
   let files = diffData.files || [];
+  const editorialHistory = diffData.editorial_history || [];
   const logicalDocuments = diffData.document_relations?.length
     ? diffData.document_relations
     : (diffData.document_relation ? [diffData.document_relation] : []);
@@ -1206,6 +1207,47 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
       </div>
     `;
     return html;
+  }
+
+  if (isEditorial && editorialHistory.length) {
+    const eventLabel = {
+      main_document_selected: 'Novo manuscrito principal',
+      main_document_revised: 'Revisão do manuscrito principal',
+      supporting_documents_changed: 'Documentos complementares'
+    };
+    html += `
+      <section class="editorial-history-card">
+        <div class="editorial-history-heading">
+          <div>
+            <strong>História editorial completa</strong>
+            <span>${editorialHistory.length} etapa(s) entre as versões selecionadas</span>
+          </div>
+          <small>A sequência considera commits, autoria e a linhagem do documento principal.</small>
+        </div>
+        <ol class="editorial-history-list">
+          ${editorialHistory.map((entry, index) => `
+            <li>
+              <span class="editorial-history-index">${index + 1}</span>
+              <div class="editorial-history-event">
+                <div class="editorial-history-event-head">
+                  <strong>${esc(eventLabel[entry.event] || 'Alteração editorial')}</strong>
+                  <code>${esc(entry.short_hash || '')}</code>
+                  <time>${esc(formatDate(entry.date))}</time>
+                </div>
+                <div class="editorial-history-subject">${esc(entry.subject || '')}</div>
+                <div class="editorial-history-context">
+                  <span>Por ${esc(entry.author || 'autor desconhecido')}</span>
+                  ${entry.event === 'main_document_selected' && entry.previous_main_document
+                    ? `<span class="editorial-lineage-change">${esc(entry.previous_main_document)} → ${esc(entry.main_document)}</span>`
+                    : (entry.main_document ? `<span>Principal: ${esc(entry.main_document)}</span>` : '')}
+                </div>
+                ${(entry.documents || []).length ? `<div class="editorial-history-files">${entry.documents.map(path => `<span>${esc(path)}</span>`).join('')}</div>` : ''}
+              </div>
+            </li>
+          `).join('')}
+        </ol>
+      </section>
+    `;
   }
 
 
@@ -1835,8 +1877,9 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
             <div style="padding-bottom:6px;">
               <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; font-weight:600; color:var(--navy); cursor:pointer;">
                 <input type="checkbox" id="uploadIsMain" checked>
-                <span>Definir como manuscrito principal</span>
+                <span>Este arquivo é a nova versão do manuscrito principal</span>
               </label>
+              <small style="display:block; max-width:300px; margin-top:4px; color:var(--muted); font-size:.68rem;">Desmarque para registrar como documento complementar independente.</small>
             </div>
           </div>
 
