@@ -34,7 +34,8 @@ printf '{"schema_version":1,"project_type":"editorial","document_main":"document
 git -C "$TMP/relation-work" add . && git -C "$TMP/relation-work" commit -qm 'revisão R1'
 printf '%%!PS\n/Times-Roman findfont 12 scalefont setfont 72 720 moveto (revisao dois alterada) show showpage\n' > "$TMP/relation.ps"
 ps2pdf "$TMP/relation.ps" "$TMP/relation-work/documento-R2.pdf"
-printf '{"schema_version":1,"project_type":"editorial","document_main":"documento-R2.pdf","current_stage":"draft"}\n' > "$TMP/relation-work/.sister-editorial.json"
+# Simula cliente antigo: nova revisão enviada sem atualizar document_main.
+printf '{"schema_version":1,"project_type":"editorial","document_main":"documento-R1.pdf","current_stage":"draft"}\n' > "$TMP/relation-work/.sister-editorial.json"
 git -C "$TMP/relation-work" add . && git -C "$TMP/relation-work" commit -qm 'revisão R2'
 git -C "$TMP/relation-work" push -q "$TMP/repos/editorial-rel.git" main
 git --git-dir="$TMP/repos/editorial-rel.git" config sister.type editorial

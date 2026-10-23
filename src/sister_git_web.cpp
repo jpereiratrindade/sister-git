@@ -1168,6 +1168,37 @@ static Result unified_text_diff(const std::string &base_text, const std::string 
   return result;
 }
 
+static bool is_pdf_path(std::string path) {
+  std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c) { return std::tolower(c); });
+  return path.size() >= 4 && path.substr(path.size() - 4) == ".pdf";
+}
+
+// Editorial uploads may preserve old files and, in older clients, leave
+// document_main pointing at the first manuscript.  The PDF changed by each
+// commit is then the best evidence of the logical revision being compared.
+static std::string editorial_pdf_at_commit(const std::string &name, const std::string &revision,
+                                           const std::string &manifest_path) {
+  auto changed = run({"git", "--git-dir=" + git_dir(name), "diff-tree", "--root", "--no-commit-id",
+                      "--name-only", "-r", "-z", revision, "--"}, 4 * 1024 * 1024);
+  std::vector<std::string> pdfs;
+  if (changed.status == 0) {
+    size_t start = 0;
+    while (start < changed.out.size()) {
+      size_t end = changed.out.find('\0', start);
+      if (end == std::string::npos) end = changed.out.size();
+      std::string path = changed.out.substr(start, end - start);
+      if (is_pdf_path(path)) pdfs.push_back(path);
+      start = end + 1;
+    }
+  }
+  if (pdfs.size() == 1) return pdfs.front();
+  if (is_pdf_path(manifest_path)) {
+    auto exists = run({"git", "--git-dir=" + git_dir(name), "cat-file", "-e", revision + ":" + manifest_path});
+    if (exists.status == 0) return manifest_path;
+  }
+  return ""; // Ambiguous commits must not silently pair unrelated PDFs.
+}
+
 static std::string pdf_document_relation(const std::string &name, const std::string &base_ref,
                                          const std::string &base_path, const std::string &head_ref,
                                          const std::string &head_path) {
@@ -1323,10 +1354,8 @@ static Response compare(const std::string &name, const std::map<std::string, std
     auto head_manifest = run({"git", "--git-dir=" + git_dir(name), "show", head + ":.sister-editorial.json"});
     std::string base_main = base_manifest.status == 0 ? json_extract(base_manifest.out, "document_main") : "";
     std::string head_main = head_manifest.status == 0 ? json_extract(head_manifest.out, "document_main") : "";
-    auto is_pdf_path = [](std::string path) {
-      std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c) { return std::tolower(c); });
-      return path.size() >= 4 && path.substr(path.size() - 4) == ".pdf";
-    };
+    base_main = editorial_pdf_at_commit(name, base, base_main);
+    head_main = editorial_pdf_at_commit(name, head, head_main);
     if (base_main != head_main && (is_pdf_path(base_main) || is_pdf_path(head_main))) {
       relation = pdf_document_relation(name, base, base_main, head, head_main);
     }
