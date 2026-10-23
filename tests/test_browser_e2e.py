@@ -46,7 +46,8 @@ try:
     execute("window.openNewProjectModal(); document.querySelector('#newProjName').value='e2e-editorial';"
             "document.querySelector('#newProjTitle').value='Fluxo E2E';"
             "document.querySelector('#newProjAuthor').value='Teste Firefox';"
-            "document.querySelector('#newProjDesc').value='Criado pelo navegador';")
+            "document.querySelector('#newProjDesc').value='Criado pelo navegador';"
+            "document.querySelector('input[name=\"newProjVisibility\"][value=\"private\"]').checked=true;")
     execute_async("const done=arguments[arguments.length-1]; window.handleCreateProject({preventDefault(){}}).then(()=>done(true)).catch(e=>done(String(e)));")
     wait_js("return location.hash.includes('e2e-editorial/editor') && !!document.querySelector('#liveEditorTextarea')")
     execute("let t=document.querySelector('#liveEditorTextarea'); t.value='# Fluxo E2E\\n\\nConteúdo pelo Firefox.';"

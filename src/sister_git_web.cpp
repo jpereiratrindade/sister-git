@@ -817,16 +817,26 @@ static AuthUser authenticate_request(const std::string &headers, const std::stri
   // Session token in SQLite
   if (!token.empty() && g_db) {
     sqlite3_stmt *stmt = nullptr;
-    const char *q = "SELECT email, name, role FROM sessions WHERE token = ? AND expires_at > ?";
+    const char *q = "SELECT email FROM sessions WHERE token = ? AND expires_at > ?";
     if (sqlite3_prepare_v2(g_db, q, -1, &stmt, nullptr) == SQLITE_OK) {
       sqlite3_bind_text(stmt, 1, token.c_str(), -1, SQLITE_TRANSIENT);
       sqlite3_bind_int64(stmt, 2, std::time(nullptr));
       if (sqlite3_step(stmt) == SQLITE_ROW) {
         std::string em = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-        std::string nm = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-        std::string rl = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
         sqlite3_finalize(stmt);
-        return {true, em, nm, rl};
+        // Authorization is resolved from the current allowlist on every request.
+        // Removing a user or changing a role therefore takes effect immediately.
+        std::string current_name, current_role;
+        if (is_user_allowed(em, current_name, current_role)) {
+          return {true, em, current_name, current_role};
+        }
+        sqlite3_stmt *revoke = nullptr;
+        if (sqlite3_prepare_v2(g_db, "DELETE FROM sessions WHERE token = ?", -1, &revoke, nullptr) == SQLITE_OK) {
+          sqlite3_bind_text(revoke, 1, token.c_str(), -1, SQLITE_TRANSIENT);
+          sqlite3_step(revoke);
+          sqlite3_finalize(revoke);
+        }
+        return {false, "", "", ""};
       }
       sqlite3_finalize(stmt);
     }
@@ -1612,6 +1622,11 @@ static Response route_post(const std::string &target, const std::string &headers
         sqlite3_step(stmt);
         sqlite3_finalize(stmt);
       }
+      if (sqlite3_prepare_v2(g_db, "DELETE FROM sessions WHERE email = ?", -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+      }
     }
     return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\"}"};
   }
@@ -2299,6 +2314,10 @@ int main(int argc, char **argv) {
 
   // Security gate when exposed outside loopback (0.0.0.0 or LAN IP):
   // Either master static token OR SMTP authentication MUST be active!
+  if (g_smtp.dev_mode && bind != "127.0.0.1" && bind != "::1") {
+    std::cerr << "[ERRO] Autenticação de desenvolvimento só pode escutar em loopback.\n";
+    return 1;
+  }
   if (bind != "127.0.0.1" && bind != "::1" && auth_token.empty() && !g_smtp.enabled() && !g_smtp.dev_mode) {
     std::cerr << "[ERRO] Fora de loopback (0.0.0.0), configure credenciais SMTP (--smtp-user e --smtp-pass ou --smtp-prompt) ou um token mestre.\n";
     return 1;

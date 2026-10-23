@@ -2720,6 +2720,7 @@ window.closeModal = id => document.querySelector('#' + id)?.classList.add('hidde
 window.openNewProjectModal = function(defaultType = 'editorial') {
   const sel = document.querySelector('#newProjType');
   if (sel) sel.value = defaultType;
+  document.querySelectorAll('input[name="newProjVisibility"]').forEach(input => { input.checked = false; });
   toggleProjectFields(defaultType);
   openModal('modalNewProject');
 };
@@ -2727,8 +2728,6 @@ window.openNewProjectModal = function(defaultType = 'editorial') {
 window.toggleProjectFields = function(type) {
   const f = document.querySelector('#editorialSpecificFields');
   if (f) f.style.display = type === 'editorial' ? 'block' : 'none';
-  const visibility = document.querySelector('#newProjVisibility');
-  if (visibility) visibility.value = type === 'editorial' ? 'private' : 'public';
 };
 
 window.handleCreateProject = async function(e) {
@@ -2738,9 +2737,18 @@ window.handleCreateProject = async function(e) {
   const title = document.querySelector('#newProjTitle')?.value.trim();
   const author = document.querySelector('#newProjAuthor')?.value.trim();
   const desc = document.querySelector('#newProjDesc')?.value.trim();
-  const vis = document.querySelector('#newProjVisibility')?.value;
+  const vis = document.querySelector('input[name="newProjVisibility"]:checked')?.value;
   const fb = document.querySelector('#newProjFeedback');
   const btn = document.querySelector('#btnSubmitProject');
+
+  if (!vis) {
+    if (fb) {
+      fb.textContent = 'Escolha se o repositório será público ou privado.';
+      fb.classList.remove('hidden');
+    }
+    document.querySelector('.visibility-field')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
 
   btn.disabled = true;
   btn.textContent = 'Criando no Git...';

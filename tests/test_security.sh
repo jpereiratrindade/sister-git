@@ -37,4 +37,11 @@ PY
 curl -fsS -H 'Cookie: sister_token=fake' "$BASE/api/v1/auth/status" | grep -q '"authenticated":false'
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Length: 999999999' "$BASE/api/v1/repos")" == 413 ]]
 
+if SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" \
+  "$HERE/build/sister-git-web" --bind 0.0.0.0 --port $((PORT + 1)) --dev-auth >"$TMP/public-dev.log" 2>&1; then
+  echo '[ERRO] autenticação de desenvolvimento aceita fora de loopback' >&2
+  exit 1
+fi
+grep -q 'só pode escutar em loopback' "$TMP/public-dev.log"
+
 echo '[OK] Controles de segurança web validados'

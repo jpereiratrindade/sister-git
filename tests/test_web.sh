@@ -371,9 +371,10 @@ for SAMPLE in amostra.odt amostra.pdf amostra.png amostra.bin; do
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/download-$SAMPLE" | cut -d' ' -f1)" ]]
 done
 
-# Logout revoga a sessão no backend; reutilização do token não autentica.
-curl -fsS -H "Authorization: Bearer $COLEGA_TOKEN" -H "Content-Type: application/json" -d '{}' \
-  "http://127.0.0.1:$PORT_AUTH/api/v1/auth/logout" | grep -q '"ok":true'
+# Remover usuário revoga imediatamente todas as sessões existentes.
+curl -fsS -H "Authorization: Bearer $OTP_TOKEN" -H "Content-Type: application/json" \
+  -d '{"email":"colega@embrapa.br"}' \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/admin/users/delete" | grep -q '"ok":true'
 curl -fsS -H "Authorization: Bearer $COLEGA_TOKEN" \
   "http://127.0.0.1:$PORT_AUTH/api/v1/auth/status" | grep -q '"authenticated":false'
 

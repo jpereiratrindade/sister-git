@@ -213,13 +213,21 @@
             <textarea id="newProjDesc" rows="2" placeholder="Breve síntese do escopo ou objetivo."></textarea>
           </label>
 
-          <label class="field-label">
-            <span>Visibilidade</span>
-            <select id="newProjVisibility">
-              <option value="private">🔒 Privado (somente pesquisadores com token)</option>
-              <option value="public">🌐 Público (acesso livre à leitura)</option>
-            </select>
-          </label>
+          <fieldset class="visibility-field">
+            <legend>Visibilidade <small>Escolha obrigatória</small></legend>
+            <div class="visibility-options">
+              <label class="visibility-option">
+                <input type="radio" name="newProjVisibility" value="private" required>
+                <span class="visibility-icon">🔒</span>
+                <span><strong>Privado</strong><small>Somente proprietário e equipe autorizada</small></span>
+              </label>
+              <label class="visibility-option">
+                <input type="radio" name="newProjVisibility" value="public" required>
+                <span class="visibility-icon">🌐</span>
+                <span><strong>Público</strong><small>Qualquer pessoa pode consultar; escrita continua protegida</small></span>
+              </label>
+            </div>
+          </fieldset>
 
           <div id="newProjFeedback" class="form-feedback hidden"></div>
         </div>
