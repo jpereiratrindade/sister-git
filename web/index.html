@@ -510,7 +510,10 @@
               <option value="admin">Administrador</option>
             </select>
           </label>
-          <button type="submit" class="btn-primary" style="padding: 7px 14px; height: 35px;">+ Autorizar</button>
+          <div style="display:flex; gap:6px;">
+            <button type="submit" id="btnSubmitUser" class="btn-primary" style="padding: 7px 14px; height: 35px; white-space:nowrap;">+ Autorizar</button>
+            <button type="button" id="btnCancelEditUser" class="btn-cancel hidden" onclick="cancelEditAllowedUser()" style="padding: 7px 10px; height: 35px;">Cancelar</button>
+          </div>
         </form>
         <div id="addUserFeedback" class="form-feedback hidden"></div>
 

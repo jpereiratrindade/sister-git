@@ -2473,13 +2473,14 @@ async function reloadAllowedUsers() {
       return;
     }
     container.innerHTML = users.map(u => `
-      <div class="user-row">
+      <div class="user-row" style="display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-bottom:1px solid var(--line);">
         <div>
           <strong style="color: var(--navy); display: block;">${esc(u.name || u.email)}</strong>
           <span style="font-size: 0.75rem; color: var(--muted);">${esc(u.email)}</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <span class="user-role-tag ${u.role === 'admin' ? 'role-admin' : 'role-researcher'}">${u.role === 'admin' ? 'Administrador' : 'Pesquisador'}</span>
+          <button type="button" class="btn-cancel" style="padding: 3px 8px; font-size: 0.72rem; cursor:pointer;" onclick="handleEditAllowedUser('${esc(u.email)}', '${esc(u.name || '')}', '${esc(u.role || 'researcher')}')">✏️ Editar</button>
           ${currentUser && currentUser.email !== u.email ? `
             <button type="button" class="btn-cancel" style="padding: 3px 8px; font-size: 0.72rem; color: #cf222e; border-color: #fca5a5; cursor:pointer;" onclick="handleRemoveAllowedUser('${esc(u.email)}')">Remover</button>
           ` : '<span style="font-size: 0.72rem; color: var(--muted);">(Você)</span>'}
@@ -2491,6 +2492,49 @@ async function reloadAllowedUsers() {
   }
 }
 
+window.handleEditAllowedUser = function(email, name, role) {
+  const emailInput = document.querySelector('#newUserEmail');
+  const nameInput = document.querySelector('#newUserName');
+  const roleSelect = document.querySelector('#newUserRole');
+  const btnSubmit = document.querySelector('#btnSubmitUser');
+  const btnCancel = document.querySelector('#btnCancelEditUser');
+  
+  if (emailInput) {
+    emailInput.value = email;
+    emailInput.readOnly = true;
+    emailInput.style.backgroundColor = '#f1f5f9';
+  }
+  if (nameInput) {
+    nameInput.value = name;
+    nameInput.focus();
+  }
+  if (roleSelect) roleSelect.value = role;
+  if (btnSubmit) {
+    btnSubmit.textContent = 'Salvar Alterações ✓';
+  }
+  if (btnCancel) btnCancel.classList.remove('hidden');
+};
+
+window.cancelEditAllowedUser = function() {
+  const emailInput = document.querySelector('#newUserEmail');
+  const nameInput = document.querySelector('#newUserName');
+  const roleSelect = document.querySelector('#newUserRole');
+  const btnSubmit = document.querySelector('#btnSubmitUser');
+  const btnCancel = document.querySelector('#btnCancelEditUser');
+  
+  if (emailInput) {
+    emailInput.value = '';
+    emailInput.readOnly = false;
+    emailInput.style.backgroundColor = '';
+  }
+  if (nameInput) nameInput.value = '';
+  if (roleSelect) roleSelect.value = 'researcher';
+  if (btnSubmit) btnSubmit.textContent = '+ Autorizar';
+  if (btnCancel) btnCancel.classList.add('hidden');
+  const fb = document.querySelector('#addUserFeedback');
+  if (fb) fb.classList.add('hidden');
+};
+
 window.handleAddAllowedUser = async function(e) {
   e.preventDefault();
   const email = document.querySelector('#newUserEmail').value.trim().toLowerCase();
@@ -2501,9 +2545,8 @@ window.handleAddAllowedUser = async function(e) {
 
   try {
     await apiPost('/api/v1/admin/users', { email, name, role });
-    showToast(`✓ Pesquisador '${name}' autorizado com sucesso!`);
-    document.querySelector('#newUserEmail').value = '';
-    document.querySelector('#newUserName').value = '';
+    showToast(`✓ Dados de '${name}' salvos com sucesso!`);
+    cancelEditAllowedUser();
     await reloadAllowedUsers();
   } catch (err) {
     if (fb) {
