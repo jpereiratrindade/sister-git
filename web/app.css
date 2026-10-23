@@ -1082,6 +1082,54 @@ main#app {
   padding: 0;
   color: inherit;
 }
+.markdown-code-block {
+  margin: 1.2em 0;
+  overflow: hidden;
+  border: 1px solid #263b50;
+  border-radius: var(--radius-md);
+  background: #0d1117;
+}
+.markdown-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid #263b50;
+  background: #161b22;
+  color: #9da7b3;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.markdown-code-head button {
+  border: 1px solid #3d4854;
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: #21262d;
+  color: #e6edf3;
+  font: inherit;
+  cursor: pointer;
+}
+.markdown-code-head button:hover {
+  border-color: #768390;
+  background: #30363d;
+}
+.markdown-body .markdown-code-block pre,
+.readme-card-body .markdown-code-block pre {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 16px 18px;
+  background: #0d1117;
+  color: #e6edf3;
+  line-height: 1.55;
+}
+.markdown-body .markdown-code-block pre code,
+.readme-card-body .markdown-code-block pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
 .markdown-body hr {
   border: none;
   height: 1px;

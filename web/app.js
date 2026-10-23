@@ -214,12 +214,26 @@ const timeAgo = s => {
 
 function renderMarkdown(md) {
   if (!md) return '';
-  let html = esc(md);
+  const codeBlocks = [];
+  let source = String(md).replace(/\r\n?/g, '\n');
 
-  // Fenced Code blocks
-  html = html.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    return `<pre><code class="language-${lang}">${code}</code></pre>`;
+  // Extract fenced blocks before other Markdown rules. This keeps headings,
+  // lists and inline markers inside source code literal and safely escaped.
+  source = source.replace(/```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const index = codeBlocks.length;
+    const language = lang || 'texto';
+    codeBlocks.push(`
+      <div class="markdown-code-block">
+        <div class="markdown-code-head">
+          <span>${esc(language)}</span>
+          <button type="button" onclick="copyMarkdownCode(this)" aria-label="Copiar bloco de código">⧉ Copiar</button>
+        </div>
+        <pre><code class="language-${esc(lang)}">${esc(code.replace(/\n$/, ''))}</code></pre>
+      </div>`);
+    return `\n\n@@SISTER_CODE_${index}@@\n\n`;
   });
+
+  let html = esc(source);
 
   // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -250,12 +264,39 @@ function renderMarkdown(md) {
   return paragraphs.map(p => {
     p = p.trim();
     if (!p) return '';
+    const codeMatch = p.match(/^@@SISTER_CODE_(\d+)@@$/);
+    if (codeMatch) return codeBlocks[Number(codeMatch[1])] || '';
     if (p.startsWith('<h') || p.startsWith('<pre') || p.startsWith('<blockquote') || p.startsWith('<ul') || p.startsWith('<hr')) {
       return p;
     }
     return `<p>${p.replace(/\n/g, '<br>')}</p>`;
   }).join('\n');
 }
+
+window.copyMarkdownCode = async function(button) {
+  const code = button.closest('.markdown-code-block')?.querySelector('code')?.textContent || '';
+  try {
+    let copied = false;
+    if (navigator.clipboard?.writeText) {
+      try { await navigator.clipboard.writeText(code); copied = true; } catch (_) {}
+    }
+    if (!copied) {
+      const area = document.createElement('textarea');
+      area.value = code;
+      area.setAttribute('readonly', '');
+      area.style.position = 'fixed';
+      area.style.opacity = '0';
+      document.body.appendChild(area);
+      area.select();
+      if (!document.execCommand('copy')) throw new Error('copy unavailable');
+      area.remove();
+    }
+    button.textContent = '✓ Copiado';
+    setTimeout(() => { button.textContent = '⧉ Copiar'; }, 1800);
+  } catch (_) {
+    showToast('Não foi possível copiar o bloco de código.');
+  }
+};
 
 function showToast(msg) {
   const t = document.querySelector('#toast');
