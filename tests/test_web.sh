@@ -41,6 +41,20 @@ printf '{"schema_version":1,"project_type":"editorial","document_main":"document
 git -C "$TMP/relation-work" add . && git -C "$TMP/relation-work" commit -qm 'revisão R2'
 git -C "$TMP/relation-work" push -q "$TMP/repos/editorial-rel.git" main
 git --git-dir="$TMP/repos/editorial-rel.git" config sister.type editorial
+
+# Repositório legado de texto: a revisão mudou de nome sem atualizar o manifesto.
+mkdir -p "$TMP/text-relation-work"
+git init -q --bare --initial-branch=main "$TMP/repos/editorial-text-rel.git"
+git -C "$TMP/text-relation-work" init -q -b main
+git -C "$TMP/text-relation-work" config user.name 'LABECO Teste'
+git -C "$TMP/text-relation-work" config user.email 'teste@example.invalid'
+printf '{"schema_version":1,"project_type":"editorial","document_main":"manuscrito.md","current_stage":"draft"}\n' > "$TMP/text-relation-work/.sister-editorial.json"
+printf '# Manuscrito\n\nVersão extensa original.\n' > "$TMP/text-relation-work/manuscrito.md"
+git -C "$TMP/text-relation-work" add . && git -C "$TMP/text-relation-work" commit -qm 'versão original'
+printf '# Manuscrito\n\nVersão dois mais enxuta.\n' > "$TMP/text-relation-work/versao-2.md"
+git -C "$TMP/text-relation-work" add . && git -C "$TMP/text-relation-work" commit -qm 'versão 2'
+git -C "$TMP/text-relation-work" push -q "$TMP/repos/editorial-text-rel.git" main
+git --git-dir="$TMP/repos/editorial-text-rel.git" config sister.type editorial
 PORT=$((20000 + RANDOM % 20000))
 SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" SISTER_GIT_WEB_TOKEN="core-test-token" "$HERE/build/sister-git-web" --port "$PORT" >"$TMP/server.log" 2>&1 & PID=$!
 for _ in {1..50}; do curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null && break; sleep .05; done
@@ -90,6 +104,17 @@ assert relations[0]['change'] == 'added' and relations[0]['head_path'] == 'docum
 assert relations[1]['change'] == 'revised'
 assert relations[1]['base_path'] == 'documento-R1.pdf'
 assert relations[1]['head_path'] == 'documento-R2.pdf'
+PY
+curl -fsS -H 'Authorization: Bearer core-test-token' "http://127.0.0.1:$PORT/api/v1/repos/editorial-text-rel/compare?base=HEAD~1&head=HEAD" > "$TMP/text-relation.json"
+python3 - "$TMP/text-relation.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding='utf-8'))
+assert len(data['document_relations']) == 1, data
+relation = data['document_relations'][0]
+assert relation['logical'] is True and relation['kind'] == 'text', relation
+assert relation['base_path'] == 'manuscrito.md', relation
+assert relation['head_path'] == 'versao-2.md', relation
+assert data['editorial_history'][0]['event'] == 'main_document_inferred'
 PY
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 401 ]]

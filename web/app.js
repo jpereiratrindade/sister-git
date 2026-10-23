@@ -1213,6 +1213,7 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
     const eventLabel = {
       main_document_selected: 'Novo manuscrito principal',
       main_document_revised: 'Revisão do manuscrito principal',
+      main_document_inferred: 'Revisão histórica recuperada',
       supporting_documents_changed: 'Documentos complementares'
     };
     html += `
@@ -1237,7 +1238,7 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
                 <div class="editorial-history-subject">${esc(entry.subject || '')}</div>
                 <div class="editorial-history-context">
                   <span>Por ${esc(entry.author || 'autor desconhecido')}</span>
-                  ${entry.event === 'main_document_selected' && entry.previous_main_document
+                  ${(entry.event === 'main_document_selected' || entry.event === 'main_document_inferred') && entry.previous_main_document
                     ? `<span class="editorial-lineage-change">${esc(entry.previous_main_document)} → ${esc(entry.main_document)}</span>`
                     : (entry.main_document ? `<span>Principal: ${esc(entry.main_document)}</span>` : '')}
                 </div>

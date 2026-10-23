@@ -1243,6 +1243,15 @@ static std::vector<std::string> changed_documents_at_commit(const std::string &n
   return documents;
 }
 
+static std::string latest_document_relation(const std::string &manifest) {
+  size_t relation = manifest.rfind("\"relation\":");
+  if (relation == std::string::npos) return "";
+  size_t object = manifest.rfind('{', relation);
+  size_t close = manifest.find('}', relation);
+  if (object == std::string::npos || close == std::string::npos) return "";
+  return json_extract(manifest.substr(object, close - object + 1), "relation");
+}
+
 // Reconstruct the editorial meaning of every commit in the selected interval.
 // Git supplies chronology; document_main supplies the manuscript lineage.
 static std::string editorial_history(const std::string &name, const std::string &base, const std::string &head) {
@@ -1250,6 +1259,8 @@ static std::string editorial_history(const std::string &name, const std::string 
   if (revisions.status != 0) return "[]";
   std::string result = "[";
   bool first = true;
+  auto base_manifest = run({"git", "--git-dir=" + git_dir(name), "show", base + ":.sister-editorial.json"});
+  std::string logical_main = base_manifest.status == 0 ? json_extract(base_manifest.out, "document_main") : "";
   for (const auto &commit : lines(revisions.out)) {
     if (commit.empty()) continue;
     auto info = run({"git", "--git-dir=" + git_dir(name), "show", "-s", "--format=%H%x00%P%x00%aI%x00%an%x00%s", commit});
@@ -1269,18 +1280,34 @@ static std::string editorial_history(const std::string &name, const std::string 
     if (parent_space != std::string::npos) parent.resize(parent_space);
     auto manifest = run({"git", "--git-dir=" + git_dir(name), "show", commit + ":.sister-editorial.json"});
     auto previous_manifest = parent.empty() ? Result{2, ""} : run({"git", "--git-dir=" + git_dir(name), "show", parent + ":.sister-editorial.json"});
-    std::string main_document = manifest.status == 0 ? json_extract(manifest.out, "document_main") : "";
+    std::string manifest_main = manifest.status == 0 ? json_extract(manifest.out, "document_main") : "";
     std::string previous_main = previous_manifest.status == 0 ? json_extract(previous_manifest.out, "document_main") : "";
     auto documents = changed_documents_at_commit(name, commit);
-    bool main_changed = main_document != previous_main;
-    bool main_touched = !main_document.empty() && std::find(documents.begin(), documents.end(), main_document) != documents.end();
-    std::string event = main_changed ? "main_document_selected" : (main_touched ? "main_document_revised" : "supporting_documents_changed");
+    std::string declared_relation = manifest.status == 0 ? latest_document_relation(manifest.out) : "";
+    bool explicitly_supporting = declared_relation == "supporting_document" || declared_relation == "independent_document";
+    bool main_changed = manifest_main != previous_main;
+    bool main_touched = !logical_main.empty() && std::find(documents.begin(), documents.end(), logical_main) != documents.end();
+    std::string event;
+    std::string prior_logical_main = logical_main;
+    if (main_changed && !manifest_main.empty()) {
+      logical_main = manifest_main;
+      event = "main_document_selected";
+    } else if (main_touched) {
+      event = "main_document_revised";
+    } else if (documents.size() == 1 && !explicitly_supporting) {
+      // Legacy uploads did not persist their semantic relation. A single
+      // changed document is the safest recoverable evidence of succession.
+      logical_main = documents.front();
+      event = "main_document_inferred";
+    } else {
+      event = "supporting_documents_changed";
+    }
     if (!first) result += ',';
     first = false;
     result += "{\"commit\":" + json(fields[0]) + ",\"short_hash\":" + json(fields[0].substr(0, 8)) +
               ",\"parent\":" + json(parent) + ",\"date\":" + json(fields[2]) + ",\"author\":" + json(fields[3]) +
               ",\"subject\":" + json(fields[4]) + ",\"event\":" + json(event) +
-              ",\"main_document\":" + json(main_document) + ",\"previous_main_document\":" + json(previous_main) +
+              ",\"main_document\":" + json(logical_main) + ",\"previous_main_document\":" + json(prior_logical_main) +
               ",\"documents\":[";
     for (size_t i = 0; i < documents.size(); ++i) {
       if (i) result += ',';
@@ -1290,6 +1317,39 @@ static std::string editorial_history(const std::string &name, const std::string 
   }
   result += ']';
   return result;
+}
+
+static std::string text_document_relation(const std::string &name, const std::string &base_ref,
+                                          const std::string &base_path, const std::string &head_ref,
+                                          const std::string &head_path) {
+  auto content = [&](const std::string &revision, const std::string &path) {
+    return path.empty() ? Result{2, ""} : run({"git", "--git-dir=" + git_dir(name), "show", revision + ":" + path}, 32 * 1024 * 1024);
+  };
+  auto base_content = content(base_ref, base_path);
+  auto head_content = content(head_ref, head_path);
+  if ((base_content.status != 0 && base_content.status != 2) || (head_content.status != 0 && head_content.status != 2)) return "null";
+  auto delta = unified_text_diff(base_content.status == 0 ? base_content.out : "", head_content.status == 0 ? head_content.out : "");
+  if (delta.status != 0) return "null";
+  std::string line_json = "[";
+  bool first = true;
+  size_t additions = 0, deletions = 0;
+  for (const auto &line : lines(delta.out)) {
+    std::string type, text;
+    if (line.rfind("--- ", 0) == 0 || line.rfind("+++ ", 0) == 0) continue;
+    if (line.rfind("@@", 0) == 0) { type = "hunk"; text = line; }
+    else if (!line.empty() && line[0] == '+') { type = "add"; text = line.substr(1); ++additions; }
+    else if (!line.empty() && line[0] == '-') { type = "del"; text = line.substr(1); ++deletions; }
+    else if (!line.empty() && line[0] == ' ') { type = "ctx"; text = line.substr(1); }
+    else continue;
+    if (!first) line_json += ',';
+    first = false;
+    line_json += "{\"type\":" + json(type) + ",\"text\":" + json(text) + "}";
+  }
+  line_json += ']';
+  return "{\"kind\":\"text\",\"logical\":true,\"change\":\"revised\",\"path\":" + json(head_path) +
+         ",\"base_path\":" + json(base_path) + ",\"head_path\":" + json(head_path) +
+         ",\"additions\":" + std::to_string(additions) + ",\"deletions\":" + std::to_string(deletions) +
+         ",\"lines\":" + line_json + "}";
 }
 
 static std::string editorial_pdf_at_commit(const std::string &name, const std::string &revision,
@@ -1488,6 +1548,33 @@ static Response compare(const std::string &name, const std::map<std::string, std
       if (current_path != resolved_head && (is_pdf_path(current_path) || is_pdf_path(resolved_head))) {
         relation = pdf_document_relation(name, base, current_path, head, resolved_head);
         relations = "[" + relation + "]";
+      }
+    }
+
+    // Recover a logical manuscript lineage for legacy non-PDF uploads. New
+    // uploads carry an explicit relation; old single-document commits are
+    // interpreted as successive revisions unless explicitly marked otherwise.
+    if (!is_pdf_path(base_main)) {
+      std::string logical_path = base_main;
+      auto lineage_commits = run({"git", "--git-dir=" + git_dir(name), "rev-list", "--reverse", "--ancestry-path", base + ".." + head});
+      if (lineage_commits.status == 0) {
+        for (const auto &commit : lines(lineage_commits.out)) {
+          auto commit_manifest = run({"git", "--git-dir=" + git_dir(name), "show", commit + ":.sister-editorial.json"});
+          std::string declared_main = commit_manifest.status == 0 ? json_extract(commit_manifest.out, "document_main") : "";
+          std::string declared_relation = commit_manifest.status == 0 ? latest_document_relation(commit_manifest.out) : "";
+          auto documents = changed_documents_at_commit(name, commit);
+          if (!declared_main.empty() && declared_main != logical_path) logical_path = declared_main;
+          else if (documents.size() == 1 && declared_relation != "supporting_document" && declared_relation != "independent_document") {
+            logical_path = documents.front();
+          }
+        }
+      }
+      if (!logical_path.empty() && logical_path != base_main && !is_pdf_path(logical_path)) {
+        std::string text_relation = text_document_relation(name, base, base_main, head, logical_path);
+        if (text_relation != "null") {
+          relation = text_relation;
+          relations = "[" + text_relation + "]";
+        }
       }
     }
   }
