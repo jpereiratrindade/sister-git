@@ -142,6 +142,11 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/create_ed.json"
 grep -q '"ok":true' "$TMP/create_ed.json"
 grep -q '"type":"editorial"' "$TMP/create_ed.json"
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" config --get receive.denyNonFastForwards)" == true ]]
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" config --get receive.denyDeletes)" == true ]]
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" config --get receive.fsckObjects)" == true ]]
+[[ "$(git --git-dir="$TMP/repos/artigo-teste.git" config --get core.logAllRefUpdates)" == true ]]
+[[ "$(stat -c '%a' "$TMP/repos/artigo-teste.git")" == 700 ]]
 [[ "$(git --git-dir="$TMP/repos/artigo-teste.git" show 'HEAD:.sister-editorial.json' | sed -n 's/.*"document_main": "\([^"]*\)".*/\1/p')" == "" ]]
 curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
   -d '{"orcid":"0000-0002-1825-0097","institution":"LABECO / Embrapa","areas":"Ecologia dos campos"}' \

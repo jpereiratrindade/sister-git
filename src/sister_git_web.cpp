@@ -929,6 +929,18 @@ static Response create_repo(const std::string &name, const std::string &type, co
   auto init = run({"git", "init", "--bare", "--initial-branch=main", gd});
   if (init.status != 0) return error(500, "Falha ao inicializar repositório: " + init.out);
 
+  const std::vector<std::pair<std::string, std::string>> security_config = {
+    {"receive.denyNonFastForwards", "true"},
+    {"receive.denyDeletes", "true"},
+    {"receive.fsckObjects", "true"},
+    {"core.logAllRefUpdates", "true"}
+  };
+  for (const auto &[key, value] : security_config) {
+    auto configured = run({"git", "--git-dir=" + gd, "config", key, value});
+    if (configured.status != 0) return error(500, "Falha ao aplicar proteção Git " + key);
+  }
+  if (chmod(gd.c_str(), 0700) != 0) return error(500, "Falha ao restringir permissões do repositório");
+
   run({"git", "--git-dir=" + gd, "config", "sister.type", type == "editorial" ? "editorial" : "software"});
   run({"git", "--git-dir=" + gd, "config", "sister.visibility", visibility == "private" ? "private" : "public"});
   if (!user.email.empty()) {
