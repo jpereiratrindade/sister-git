@@ -102,6 +102,36 @@ SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" SISTER_GIT_WEB_TOKE
 trap 'status=$?; [[ -n "${PID:-}" ]] && kill "$PID" 2>/dev/null || :; [[ -n "${PID_AUTH:-}" ]] && kill "$PID_AUTH" 2>/dev/null || :; if ((status)); then cat "$TMP/server.log" "$TMP/server_auth.log" 2>/dev/null || :; fi; rm -rf -- "$TMP"; exit $status' EXIT
 for _ in {1..50}; do curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/health" >/dev/null && break; sleep .05; done
 
+# MCP somente leitura: protocolo, ferramentas, isolamento privado e busca/fetch.
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}' \
+  "http://127.0.0.1:$PORT_AUTH/mcp" > "$TMP/mcp-init.json"
+grep -q '"name":"sister-git"' "$TMP/mcp-init.json"
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+  "http://127.0.0.1:$PORT_AUTH/mcp" > "$TMP/mcp-tools.json"
+grep -q '"name":"search"' "$TMP/mcp-tools.json"
+grep -q '"readOnlyHint":true' "$TMP/mcp-tools.json"
+! grep -Eq 'create|upload|delete|write' "$TMP/mcp-tools.json"
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_repositories","arguments":{}}}' \
+  "http://127.0.0.1:$PORT_AUTH/mcp" > "$TMP/mcp-public.json"
+grep -q '"name":"MORFO"' "$TMP/mcp-public.json"
+! grep -q '"name":"empty"' "$TMP/mcp-public.json"
+curl -fsS -H 'Authorization: Bearer test-token-123' -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"list_repositories","arguments":{}}}' \
+  "http://127.0.0.1:$PORT_AUTH/mcp" | grep -q '"name":"empty"'
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"search","arguments":{"query":"MORFO","repo":"MORFO"}}}' \
+  "http://127.0.0.1:$PORT_AUTH/mcp" > "$TMP/mcp-search.json"
+grep -q 'MORFO:README.md@HEAD' "$TMP/mcp-search.json"
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"fetch","arguments":{"id":"MORFO:README.md@HEAD"}}}' \
+  "http://127.0.0.1:$PORT_AUTH/mcp" | grep -q 'Interface de teste'
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"delete_repository","arguments":{"repo":"MORFO"}}}' \
+  "http://127.0.0.1:$PORT_AUTH/mcp" | grep -q 'Ferramenta desconhecida ou não permitida'
+
 # Anonimo: so ve MORFO (publico), nao ve empty (privado)
 curl -fsS "http://127.0.0.1:$PORT_AUTH/api/v1/repos" > "$TMP/anon_repos.json"
 grep -q '"name":"MORFO"' "$TMP/anon_repos.json"
@@ -332,6 +362,12 @@ if grep -Eq 'reviews|responses|transitions|decisions|owner' "$TMP/public_editori
 git --git-dir="$TMP/repos/artigo-teste.git" tag -l | grep -q 'ed/v1.0-publicado'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -Eq '"current_stage":[[:space:]]*"published"'
 git --git-dir="$TMP/repos/artigo-teste.git" show 'ed/v1.0-publicado:.sister-editorial.json' | grep -q '"editions"'
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"read_file","arguments":{"repo":"artigo-teste","ref":"HEAD","path":"manuscrito.md"}}}' \
+  "http://127.0.0.1:$PORT_AUTH/mcp" | grep -q 'Acesso público limitado'
+curl -fsS -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"read_file","arguments":{"repo":"artigo-teste","ref":"ed/v1.0-publicado","path":"manuscrito.md"}}}' \
+  "http://127.0.0.1:$PORT_AUTH/mcp" | grep -q 'Texto atualizado na revisão'
 
 # Simular falha intermediária: commit publicado persistiu, mas tag não existe.
 PUBLISHED_HEAD="$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)"

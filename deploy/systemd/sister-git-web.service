@@ -11,6 +11,7 @@ EnvironmentFile=-/etc/sister-git-web.env
 
 Environment=SISTER_GIT_ROOT=/srv/git
 Environment=SISTER_GIT_WEB_ROOT=/usr/local/share/sister-git/web
+Environment=SISTER_GIT_PUBLIC_URL=http://10.163.80.129:8787
 
 ExecStart=/usr/local/bin/sister-git-web --bind 0.0.0.0 --port 8787
 

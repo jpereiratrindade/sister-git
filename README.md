@@ -24,6 +24,34 @@ SISTER_GIT_ROOT=/srv/git SISTER_GIT_WEB_ROOT="$PWD/web" ./build/sister-git-web -
 
 Para implantação em produção no servidor (`labeco-srv`), consulte a seção [Operação em Produção com systemd](docs/SISTER-GIT-WEB.md#3-operação-em-produção-com-systemd) e os modelos em [`deploy/systemd/`](deploy/systemd/).
 
+## MCP somente leitura para ChatGPT e outros agentes
+
+O mesmo serviço expõe um endpoint MCP Streamable HTTP em `POST /mcp`. Ele anuncia
+somente ferramentas de leitura: `search`, `fetch`, `list_repositories`, `list_tree`,
+`read_file`, `list_commits`, `compare_versions` e `get_editorial`.
+
+- Sem autenticação, MCP enxerga apenas repositórios públicos.
+- Com o mesmo Bearer token da API, MCP respeita proprietário, membros e função administrativa.
+- Arquivos privados nunca aparecem em pesquisa ou listagem sem autorização.
+- Não existem ferramentas MCP para criar, editar, enviar, commitar ou excluir conteúdo.
+
+Configure a URL usada nas referências retornadas:
+
+```bash
+SISTER_GIT_PUBLIC_URL=http://10.163.80.129:8787
+```
+
+Teste local mínimo:
+
+```bash
+curl -sS http://127.0.0.1:8787/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+Como o servidor LABECO está em rede privada, ChatGPT deve alcançá-lo via Secure MCP
+Tunnel. Não abra a porta 8787 diretamente na Internet.
+
 ## Instalar
 
 No nó local (ou após clonar o repositório):
