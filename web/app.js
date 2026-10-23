@@ -1089,6 +1089,11 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
     return a.path.localeCompare(b.path);
   });
 
+  // A long main manuscript used to push every secondary document several
+  // screens down, which made a valid multi-file comparison look incomplete.
+  // Stable local anchors keep every changed document directly reachable.
+  docFiles.forEach((file, index) => { file.compareAnchor = `compare-document-${index + 1}`; });
+
   const totalAdd = files.reduce((acc, f) => acc + (f.additions || 0), 0);
   const totalDel = files.reduce((acc, f) => acc + (f.deletions || 0), 0);
 
@@ -1203,14 +1208,35 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
     return html;
   }
 
+
+  if (docFiles.length) {
+    html += `
+      <nav class="compare-document-nav" aria-label="Documentos desta comparação">
+        <div class="compare-document-nav-title">
+          <strong>${docFiles.length} documento(s) considerado(s)</strong>
+          <span>Selecione um arquivo para ir diretamente às alterações.</span>
+        </div>
+        <div class="compare-document-links">
+          ${docFiles.map((f, index) => `
+            <a href="#${f.compareAnchor}" onclick="event.preventDefault(); document.getElementById('${f.compareAnchor}')?.scrollIntoView({behavior:'smooth', block:'start'});">
+              <span>${index + 1}</span>
+              ${esc(f.path)}
+              ${f.path === mainDoc ? '<small>Principal</small>' : ''}
+            </a>
+          `).join('')}
+        </div>
+      </nav>
+    `;
+  }
+
   for (const f of docFiles) {
     if (f.kind === 'pdf') {
-      html += renderPdfDiff(repo, f, effectiveBase, effectiveHead);
+      html += `<div id="${f.compareAnchor}" class="compare-document-target">${renderPdfDiff(repo, f, effectiveBase, effectiveHead)}</div>`;
       continue;
     }
     if (effectiveView === 'editorial') {
       html += `
-        <div class="editorial-diff-card">
+        <div id="${f.compareAnchor}" class="editorial-diff-card compare-document-target">
           <div class="editorial-diff-header">
             <div class="editorial-diff-doc-title">
               <span>📄</span>
@@ -1229,7 +1255,7 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
       `;
     } else if (effectiveView === 'split') {
       html += `
-        <div class="diff-box">
+        <div id="${f.compareAnchor}" class="diff-box compare-document-target">
           <div class="diff-file-head" style="display:flex; justify-content:space-between; align-items:center;">
             <span>📄 ${esc(f.path)} ${f.path === mainDoc ? '<span class="badge-edition-tag">Documento Principal</span>' : ''}</span>
             <span style="font-size:0.75rem;"><strong style="color:var(--diff-add-text);">+${f.additions || 0}</strong> / <strong style="color:var(--diff-del-text);">-${f.deletions || 0}</strong></span>
@@ -1239,7 +1265,7 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
       `;
     } else {
       html += `
-        <div class="diff-box">
+        <div id="${f.compareAnchor}" class="diff-box compare-document-target">
           <div class="diff-file-head" style="display:flex; justify-content:space-between; align-items:center;">
             <span>${esc(f.path)}</span>
             <span style="font-size:0.75rem;"><strong style="color:var(--diff-add-text);">+${f.additions || 0}</strong> / <strong style="color:var(--diff-del-text);">-${f.deletions || 0}</strong></span>
