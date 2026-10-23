@@ -1049,7 +1049,7 @@ window.hydratePdfDiffs = async function() {
   });
 };
 
-async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, mainDoc }) {
+async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, mainDoc, canWrite = false }) {
   const [commitsData, refsData] = await Promise.all([
     api(`/api/v1/repos/${encodeURIComponent(repo)}/commits?ref=HEAD`).catch(() => ({ commits: [] })),
     api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`).catch(() => ({ branches: [], tags: [] }))
@@ -1071,6 +1071,7 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
 
   const diffData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(effectiveBase)}&head=${encodeURIComponent(effectiveHead)}`).catch(() => ({ files: [] }));
   let files = diffData.files || [];
+  const editorialHistory = diffData.editorial_history || [];
   const logicalDocuments = diffData.document_relations?.length
     ? diffData.document_relations
     : (diffData.document_relation ? [diffData.document_relation] : []);
@@ -1088,6 +1089,11 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
     if (b.path === mainDoc) return 1;
     return a.path.localeCompare(b.path);
   });
+
+  // A long main manuscript used to push every secondary document several
+  // screens down, which made a valid multi-file comparison look incomplete.
+  // Stable local anchors keep every changed document directly reachable.
+  docFiles.forEach((file, index) => { file.compareAnchor = `compare-document-${index + 1}`; });
 
   const totalAdd = files.reduce((acc, f) => acc + (f.additions || 0), 0);
   const totalDel = files.reduce((acc, f) => acc + (f.deletions || 0), 0);
@@ -1203,14 +1209,92 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
     return html;
   }
 
+  if (isEditorial && editorialHistory.length) {
+    const eventLabel = {
+      main_document_selected: 'Novo manuscrito principal',
+      main_document_revised: 'Revisão do manuscrito principal',
+      main_document_inferred: 'Revisão histórica recuperada',
+      supporting_documents_changed: 'Documentos complementares'
+    };
+    html += `
+      <section class="editorial-history-card">
+        <div class="editorial-history-heading">
+          <div>
+            <strong>História editorial completa</strong>
+            <span>${editorialHistory.length} etapa(s) entre as versões selecionadas</span>
+          </div>
+          <small>A sequência considera commits, autoria e a linhagem do documento principal.</small>
+        </div>
+        <ol class="editorial-history-list">
+          ${editorialHistory.map((entry, index) => `
+            <li>
+              <span class="editorial-history-index">${index + 1}</span>
+              <div class="editorial-history-event">
+                <div class="editorial-history-event-head">
+                  <strong>${esc(eventLabel[entry.event] || 'Alteração editorial')}</strong>
+                  <code>${esc(entry.short_hash || '')}</code>
+                  <time>${esc(formatDate(entry.date))}</time>
+                </div>
+                <div class="editorial-history-subject">${esc(entry.subject || '')}</div>
+                <div class="editorial-history-context">
+                  <span>Por ${esc(entry.author || 'autor desconhecido')}</span>
+                  ${(entry.event === 'main_document_selected' || entry.event === 'main_document_inferred') && entry.previous_main_document
+                    ? `<span class="editorial-lineage-change">${esc(entry.previous_main_document)} → ${esc(entry.main_document)}</span>`
+                    : (entry.main_document ? `<span>Principal: ${esc(entry.main_document)}</span>` : '')}
+                </div>
+                ${(entry.documents || []).length ? `<div class="editorial-history-files">${entry.documents.map(path => `<span>${esc(path)}</span>`).join('')}</div>` : ''}
+              </div>
+            </li>
+          `).join('')}
+        </ol>
+      </section>
+    `;
+  }
+
+  const recoveredLineage = logicalDocuments.find(doc => doc.logical && doc.base_path && doc.head_path && doc.base_path !== doc.head_path);
+  if (isEditorial && recoveredLineage && mainDoc !== recoveredLineage.head_path) {
+    html += `
+      <div class="notice-box" style="margin-bottom:18px; border-color:#f59e0b; background:#fffbeb;">
+        <strong>⚠ Linhagem recuperada ainda não consolidada no manifesto</strong>
+        <p>O histórico identifica <code>${esc(recoveredLineage.base_path)}</code> → <code>${esc(recoveredLineage.head_path)}</code>, mas o manifesto ainda aponta para <code>${esc(mainDoc || 'nenhum')}</code>.</p>
+        ${canWrite ? `<button type="button" class="btn-primary" onclick="repairEditorialLineage('${esc(repo)}','${esc(recoveredLineage.base_path)}','${esc(recoveredLineage.head_path)}')">Consolidar linhagem no manifesto</button>` : ''}
+      </div>
+    `;
+  }
+
+
+  if (docFiles.length) {
+    html += `
+      <nav class="compare-document-nav" aria-label="Documentos desta comparação">
+        <div class="compare-document-nav-title">
+          <strong>${docFiles.length} documento(s) considerado(s)</strong>
+          <span>Selecione um arquivo para ir diretamente às alterações.</span>
+        </div>
+        <div class="compare-document-links">
+          ${docFiles.map((f, index) => `
+            <a href="#${f.compareAnchor}" onclick="event.preventDefault(); document.getElementById('${f.compareAnchor}')?.scrollIntoView({behavior:'smooth', block:'start'});">
+              <span>${index + 1}</span>
+              ${esc(f.path)}
+              ${f.path === mainDoc ? '<small>Principal</small>' : ''}
+            </a>
+          `).join('')}
+        </div>
+        ${isEditorial ? `<div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+          <a class="btn-primary" style="font-size:.74rem; padding:5px 9px; text-decoration:none;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(effectiveHead)}&format=zip&scope=current" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-manuscrito-atual.zip')">⬇ Exportar manuscrito atual</a>
+          <a class="btn-cancel" style="font-size:.74rem; padding:5px 9px; text-decoration:none; background:#fff;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(effectiveHead)}&format=zip&scope=complete" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-preservacao-completa.zip')">⬇ Exportar preservação completa</a>
+        </div>` : ''}
+      </nav>
+    `;
+  }
+
   for (const f of docFiles) {
     if (f.kind === 'pdf') {
-      html += renderPdfDiff(repo, f, effectiveBase, effectiveHead);
+      html += `<div id="${f.compareAnchor}" class="compare-document-target">${renderPdfDiff(repo, f, effectiveBase, effectiveHead)}</div>`;
       continue;
     }
     if (effectiveView === 'editorial') {
       html += `
-        <div class="editorial-diff-card">
+        <div id="${f.compareAnchor}" class="editorial-diff-card compare-document-target">
           <div class="editorial-diff-header">
             <div class="editorial-diff-doc-title">
               <span>📄</span>
@@ -1229,7 +1313,7 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
       `;
     } else if (effectiveView === 'split') {
       html += `
-        <div class="diff-box">
+        <div id="${f.compareAnchor}" class="diff-box compare-document-target">
           <div class="diff-file-head" style="display:flex; justify-content:space-between; align-items:center;">
             <span>📄 ${esc(f.path)} ${f.path === mainDoc ? '<span class="badge-edition-tag">Documento Principal</span>' : ''}</span>
             <span style="font-size:0.75rem;"><strong style="color:var(--diff-add-text);">+${f.additions || 0}</strong> / <strong style="color:var(--diff-del-text);">-${f.deletions || 0}</strong></span>
@@ -1239,7 +1323,7 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
       `;
     } else {
       html += `
-        <div class="diff-box">
+        <div id="${f.compareAnchor}" class="diff-box compare-document-target">
           <div class="diff-file-head" style="display:flex; justify-content:space-between; align-items:center;">
             <span>${esc(f.path)}</span>
             <span style="font-size:0.75rem;"><strong style="color:var(--diff-add-text);">+${f.additions || 0}</strong> / <strong style="color:var(--diff-del-text);">-${f.deletions || 0}</strong></span>
@@ -1809,8 +1893,9 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
             <div style="padding-bottom:6px;">
               <label style="display:flex; align-items:center; gap:6px; font-size:0.8rem; font-weight:600; color:var(--navy); cursor:pointer;">
                 <input type="checkbox" id="uploadIsMain" checked>
-                <span>Definir como manuscrito principal</span>
+                <span>Este arquivo é a nova versão do manuscrito principal</span>
               </label>
+              <small style="display:block; max-width:300px; margin-top:4px; color:var(--muted); font-size:.68rem;">Desmarque para registrar como documento complementar independente.</small>
             </div>
           </div>
 
@@ -2014,7 +2099,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
               Objeto Git anotado: <code>${esc(ed.hash.substr(0, 10))}</code>
             </div>
             <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
-              <a class="btn-primary" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ed.name)}&format=zip" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-${esc(ed.name.replaceAll('/', '-'))}.zip')">⬇ Baixar edição ZIP</a>
+              <a class="btn-primary" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ed.name)}&format=zip&scope=current" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-${esc(ed.name.replaceAll('/', '-'))}-manuscrito-atual.zip')">⬇ Manuscrito atual</a>
+              <a class="btn-cancel" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ed.name)}&format=zip&scope=complete" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-${esc(ed.name.replaceAll('/', '-'))}-preservacao-completa.zip')">⬇ Preservação completa</a>
               <a class="btn-cancel" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="#/editorial/${encodeURIComponent(repo)}/diff?base=${encodeURIComponent(ed.name)}&head=HEAD&view=editorial">Comparar com atual</a>
             </div>
           </div>
@@ -2035,7 +2121,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
       head: options.head,
       viewMode: options.view,
       isEditorial: true,
-      mainDoc
+      mainDoc,
+      canWrite
     });
   }
 
@@ -2349,6 +2436,22 @@ window.migrateEditorialManifest = async function(repo) {
     await render();
   } catch (err) {
     alert('Erro ao migrar manifesto: ' + err.message);
+  }
+};
+
+window.repairEditorialLineage = async function(repo, previousPath, documentMain) {
+  if (!confirm(`Consolidar "${documentMain}" como manuscrito principal e preservar "${previousPath}" como versão histórica?`)) return;
+  try {
+    const result = await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/repair-lineage`, {
+      document_main: documentMain,
+      previous_path: previousPath,
+      expected_head: (window.sisterEditorialHeads || {})[repo] || ''
+    });
+    if (result.commit) window.sisterEditorialHeads[repo] = result.commit;
+    showToast('✓ Linhagem consolidada no manifesto com commit auditável.');
+    await render();
+  } catch (err) {
+    alert('Erro ao consolidar linhagem: ' + err.message);
   }
 };
 

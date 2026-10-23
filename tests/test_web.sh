@@ -41,6 +41,22 @@ printf '{"schema_version":1,"project_type":"editorial","document_main":"document
 git -C "$TMP/relation-work" add . && git -C "$TMP/relation-work" commit -qm 'revisão R2'
 git -C "$TMP/relation-work" push -q "$TMP/repos/editorial-rel.git" main
 git --git-dir="$TMP/repos/editorial-rel.git" config sister.type editorial
+
+# Repositório legado de texto: a revisão mudou de nome sem atualizar o manifesto.
+mkdir -p "$TMP/text-relation-work"
+git init -q --bare --initial-branch=main "$TMP/repos/editorial-text-rel.git"
+git -C "$TMP/text-relation-work" init -q -b main
+git -C "$TMP/text-relation-work" config user.name 'LABECO Teste'
+git -C "$TMP/text-relation-work" config user.email 'teste@example.invalid'
+printf '# Projeto editorial\n' > "$TMP/text-relation-work/README.md"
+git -C "$TMP/text-relation-work" add . && git -C "$TMP/text-relation-work" commit -qm 'inicia repositório vazio'
+printf '{"schema_version":1,"project_type":"editorial","document_main":"manuscrito.md","current_stage":"draft"}\n' > "$TMP/text-relation-work/.sister-editorial.json"
+printf '# Manuscrito\n\nVersão extensa original.\n' > "$TMP/text-relation-work/manuscrito.md"
+git -C "$TMP/text-relation-work" add . && git -C "$TMP/text-relation-work" commit -qm 'versão original'
+printf '# Manuscrito\n\nVersão dois mais enxuta.\n' > "$TMP/text-relation-work/versao-2.md"
+git -C "$TMP/text-relation-work" add . && git -C "$TMP/text-relation-work" commit -qm 'versão 2'
+git -C "$TMP/text-relation-work" push -q "$TMP/repos/editorial-text-rel.git" main
+git --git-dir="$TMP/repos/editorial-text-rel.git" config sister.type editorial
 PORT=$((20000 + RANDOM % 20000))
 SISTER_GIT_ROOT="$TMP/repos" SISTER_GIT_WEB_ROOT="$HERE/web" SISTER_GIT_WEB_TOKEN="core-test-token" "$HERE/build/sister-git-web" --port "$PORT" >"$TMP/server.log" 2>&1 & PID=$!
 for _ in {1..50}; do curl -fsS "http://127.0.0.1:$PORT/api/v1/health" >/dev/null && break; sleep .05; done
@@ -90,6 +106,31 @@ assert relations[0]['change'] == 'added' and relations[0]['head_path'] == 'docum
 assert relations[1]['change'] == 'revised'
 assert relations[1]['base_path'] == 'documento-R1.pdf'
 assert relations[1]['head_path'] == 'documento-R2.pdf'
+PY
+curl -fsS -H 'Authorization: Bearer core-test-token' "http://127.0.0.1:$PORT/api/v1/repos/editorial-text-rel/compare?base=HEAD~2&head=HEAD" > "$TMP/text-relation.json"
+python3 - "$TMP/text-relation.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding='utf-8'))
+assert len(data['document_relations']) == 1, data
+relation = data['document_relations'][0]
+assert relation['logical'] is True and relation['kind'] == 'text', relation
+assert relation['base_path'] == 'manuscrito.md', relation
+assert relation['head_path'] == 'versao-2.md', relation
+assert any(event['event'] == 'main_document_inferred' for event in data['editorial_history'])
+PY
+curl -fsS -H 'Authorization: Bearer core-test-token' -H 'Content-Type: application/json' \
+  -d '{"document_main":"versao-2.md","previous_path":"manuscrito.md"}' \
+  "http://127.0.0.1:$PORT/api/v1/repos/editorial-text-rel/editorial/repair-lineage" > "$TMP/repair-lineage.json"
+grep -q '"ok":true' "$TMP/repair-lineage.json"
+git --git-dir="$TMP/repos/editorial-text-rel.git" show HEAD:.sister-editorial.json | grep -q '"document_main":"versao-2.md"'
+git --git-dir="$TMP/repos/editorial-text-rel.git" show HEAD:.sister-editorial.json | grep -q '"recovered":true'
+curl -fsS -H 'Authorization: Bearer core-test-token' \
+  "http://127.0.0.1:$PORT/api/v1/repos/editorial-text-rel/archive?ref=HEAD&format=zip&scope=current" > "$TMP/text-current.zip"
+python3 - "$TMP/text-current.zip" <<'PY'
+import sys, zipfile
+names = zipfile.ZipFile(sys.argv[1]).namelist()
+assert any(name.endswith('/versao-2.md') for name in names), names
+assert not any(name.endswith('/manuscrito.md') for name in names), names
 PY
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 401 ]]
@@ -415,9 +456,11 @@ curl -fsS -H "Authorization: Bearer test-token-123" -H "Content-Type: applicatio
   -d "{\"filename\":\"artigo-completo.docx\",\"content_base64\":\"$B64_SAMPLE\",\"commit_msg\":\"Upload do manuscrito original em DOCX\",\"is_main\":\"true\"}" \
   "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload" > "$TMP/upload_resp.json"
 grep -q '"ok":true' "$TMP/upload_resp.json"
+grep -q '"relation":"replaces"' "$TMP/upload_resp.json"
 AFTER_UPLOAD="$(git --git-dir="$TMP/repos/artigo-teste.git" rev-parse HEAD)"
 [[ "$(git --git-dir="$TMP/repos/artigo-teste.git" rev-list --count "$BEFORE_UPLOAD..$AFTER_UPLOAD")" == 1 ]]
 git --git-dir="$TMP/repos/artigo-teste.git" show "$AFTER_UPLOAD:.sister-editorial.json" | grep -q 'artigo-completo.docx'
+git --git-dir="$TMP/repos/artigo-teste.git" show "$AFTER_UPLOAD:.sister-editorial.json" | grep -q '"relation":"replaces"'
 
 # Cliente baseado em HEAD antigo recebe 409 e não altera a referência principal.
 [[ "$(curl -s -o "$TMP/stale-write.json" -w '%{http_code}' -H "Authorization: Bearer test-token-123" -H "Content-Type: application/json" \
@@ -458,12 +501,38 @@ for SAMPLE in amostra.odt amostra.pdf amostra.png amostra.bin; do
     -d "{\"filename\":\"$SAMPLE\",\"content_base64\":\"$SAMPLE_B64\",\"commit_msg\":\"Teste de integridade $SAMPLE\",\"is_main\":false}" \
     "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/upload" > "$TMP/upload-$SAMPLE.json"
   grep -q '"ok":true' "$TMP/upload-$SAMPLE.json"
+  grep -q '"relation":"supporting_document"' "$TMP/upload-$SAMPLE.json"
   git --git-dir="$TMP/repos/artigo-teste.git" show "HEAD:$SAMPLE" > "$TMP/blob-$SAMPLE"
   curl -fsS -H "Authorization: Bearer test-token-123" "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/raw?path=$SAMPLE" > "$TMP/download-$SAMPLE"
   ORIGINAL_SHA="$(sha256sum "$TMP/$SAMPLE" | cut -d' ' -f1)"
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/blob-$SAMPLE" | cut -d' ' -f1)" ]]
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/download-$SAMPLE" | cut -d' ' -f1)" ]]
 done
+
+curl -fsS -H "Authorization: Bearer test-token-123" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?ref=HEAD&format=zip&scope=current" > "$TMP/manuscrito-atual.zip"
+python3 - "$TMP/manuscrito-atual.zip" <<'PY'
+import sys, zipfile
+names = zipfile.ZipFile(sys.argv[1]).namelist()
+assert any(name.endswith('/artigo-completo.docx') for name in names), names
+assert any(name.endswith('/amostra.odt') for name in names), names
+assert any(name.endswith('/.sister-editorial.json') for name in names), names
+assert not any(name.endswith('/manuscrito.md') for name in names), names
+PY
+
+# A comparação editorial reconstrói todos os commits, sem confundir anexos com revisões do principal.
+curl -fsS -H "Authorization: Bearer test-token-123" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/compare?base=$BEFORE_UPLOAD&head=HEAD" > "$TMP/editorial-history.json"
+python3 - "$TMP/editorial-history.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+history = data['editorial_history']
+assert len(history) >= 5, history
+assert history[0]['event'] == 'main_document_selected', history[0]
+assert history[0]['previous_main_document'] == 'manuscrito.md', history[0]
+assert history[0]['main_document'] == 'artigo-completo.docx', history[0]
+assert any(e['event'] == 'supporting_documents_changed' and 'amostra.odt' in e['documents'] for e in history), history
+PY
 
 # Remover usuário revoga imediatamente todas as sessões existentes.
 curl -fsS -H "Authorization: Bearer $OTP_TOKEN" -H "Content-Type: application/json" \
