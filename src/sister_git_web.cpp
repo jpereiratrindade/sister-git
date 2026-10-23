@@ -21,6 +21,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -1657,6 +1658,7 @@ static Response editorial(const std::string &name, const AuthUser &user) {
 static Response archive(const std::string &name, const std::map<std::string, std::string> &q) {
   std::string ref = q.count("ref") ? q.at("ref") : "HEAD";
   std::string fmt = q.count("format") ? q.at("format") : "zip";
+  std::string scope = q.count("scope") ? q.at("scope") : "complete";
   if (!valid_revision(ref)) ref = "HEAD";
   if (fmt != "zip" && fmt != "tar.gz") fmt = "zip";
 
@@ -1665,13 +1667,43 @@ static Response archive(const std::string &name, const std::map<std::string, std
   std::replace(clean_ref.begin(), clean_ref.end(), '/', '-');
 
   std::string prefix = name + "-" + clean_ref + "/";
-  auto r = run({"git", "--git-dir=" + git_dir(name), "archive", "--format=" + fmt, "--prefix=" + prefix, ref}, 128 * 1024 * 1024);
+  std::vector<std::string> archive_args = {"git", "--git-dir=" + git_dir(name), "archive", "--format=" + fmt, "--prefix=" + prefix, ref};
+  if (scope == "current") {
+    auto manifest = run({"git", "--git-dir=" + git_dir(name), "show", ref + ":.sister-editorial.json"});
+    if (manifest.status != 0 || !valid_json_object(manifest.out)) return error(409, "Manifesto editorial ausente ou inválido para exportação atual");
+    std::string current_main = json_extract(manifest.out, "document_main");
+    if (current_main.empty()) return error(409, "Documento principal não definido no manifesto");
+    std::set<std::string> predecessors;
+    size_t pos = 0;
+    const std::string key = "\"previous_path\":";
+    while ((pos = manifest.out.find(key, pos)) != std::string::npos) {
+      size_t quote = manifest.out.find('"', pos + key.size());
+      if (quote == std::string::npos) break;
+      size_t end = manifest.out.find('"', quote + 1);
+      if (end == std::string::npos) break;
+      std::string path = manifest.out.substr(quote + 1, end - quote - 1);
+      if (!path.empty() && path != current_main) predecessors.insert(path);
+      pos = end + 1;
+    }
+    auto tree = run({"git", "--git-dir=" + git_dir(name), "ls-tree", "-r", "--name-only", "-z", ref}, 16 * 1024 * 1024);
+    if (tree.status != 0) return error(500, "Falha ao listar artefatos da edição");
+    archive_args.push_back("--");
+    size_t start = 0;
+    while (start < tree.out.size()) {
+      size_t end = tree.out.find('\0', start);
+      if (end == std::string::npos) end = tree.out.size();
+      std::string path = tree.out.substr(start, end - start);
+      if (!path.empty() && !predecessors.count(path)) archive_args.push_back(path);
+      start = end + 1;
+    }
+  } else if (scope != "complete") return error(400, "Escopo de exportação inválido");
+  auto r = run(archive_args, 128 * 1024 * 1024);
   if (r.status != 0) {
     return error(500, "Falha ao gerar arquivo para download: " + r.out);
   }
 
   std::string content_type = (fmt == "zip") ? "application/zip" : "application/gzip";
-  std::string filename = name + "-" + clean_ref + (fmt == "zip" ? ".zip" : ".tar.gz");
+  std::string filename = name + "-" + clean_ref + (scope == "current" ? "-manuscrito-atual" : "-preservacao-completa") + (fmt == "zip" ? ".zip" : ".tar.gz");
   return {200, content_type, r.out, {"Content-Disposition: attachment; filename=\"" + filename + "\""}};
 }
 
@@ -2350,6 +2382,35 @@ static Response route_post(const std::string &target, const std::string &headers
       auto migrated = git_commit_file(name, ".sister-editorial.json", manifest, "chore(editorial): migrate manifest to schema v1", user.name, user.email, true, expected_head);
       if (migrated.status != 0) return error(migrated.status == 409 ? 409 : 500, migrated.out);
       return {200, "application/json; charset=utf-8", "{\"ok\":true,\"migrated\":true,\"schema_version\":1,\"commit\":" + json(migrated.out) + "}"};
+    }
+
+    if (action == "editorial/repair-lineage") {
+      std::string new_main = json_extract(body, "document_main");
+      std::string previous_path = json_extract(body, "previous_path");
+      std::string expected_head = json_extract(body, "expected_head");
+      if (!valid_path(new_main) || new_main.empty() || !valid_path(previous_path) || previous_path.empty()) {
+        return error(400, "Caminhos da linhagem documental inválidos");
+      }
+      auto target = run({"git", "--git-dir=" + git_dir(name), "cat-file", "-e", "HEAD:" + new_main});
+      auto previous = run({"git", "--git-dir=" + git_dir(name), "cat-file", "-e", "HEAD:" + previous_path});
+      if (target.status != 0 || previous.status != 0) return error(409, "Os documentos da linhagem devem existir na versão atual");
+      auto current = run({"git", "--git-dir=" + git_dir(name), "show", "HEAD:.sister-editorial.json"});
+      if (current.status != 0 || !valid_json_object(current.out)) return error(409, "Manifesto editorial ausente ou inválido");
+      std::string manifest = current.out;
+      std::string old_main = json_extract(manifest, "document_main");
+      if (old_main == new_main) return error(409, "A linhagem editorial já está consolidada neste documento");
+      if (!json_replace_string(manifest, "document_main", new_main)) return error(409, "Campo document_main ausente ou inválido");
+      std::string actor = user.email.empty() ? "editorial@labeco.invalid" : user.email;
+      std::string event = "{\"path\":" + json(new_main) + ",\"relation\":\"replaces\",\"previous_path\":" +
+                          json(previous_path) + ",\"actor\":" + json(actor) + ",\"date\":" + json(iso_now()) +
+                          ",\"recovered\":true}";
+      if (!json_append_object(manifest, "document_history", event)) return error(409, "Falha ao registrar reparação da linhagem");
+      std::string author = user.name.empty() ? "SisTer Editor" : user.name;
+      auto repaired = git_commit_file(name, ".sister-editorial.json", manifest,
+                                      "fix(editorial): consolidate recovered manuscript lineage", author, actor, true, expected_head);
+      if (repaired.status != 0) return error(repaired.status == 409 ? 409 : 500, repaired.out);
+      return {200, "application/json; charset=utf-8", "{\"ok\":true,\"document_main\":" + json(new_main) +
+              ",\"previous_path\":" + json(previous_path) + ",\"commit\":" + json(repaired.out) + "}"};
     }
 
     if (action == "editorial/research") {

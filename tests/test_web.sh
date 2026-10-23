@@ -118,6 +118,20 @@ assert relation['base_path'] == 'manuscrito.md', relation
 assert relation['head_path'] == 'versao-2.md', relation
 assert any(event['event'] == 'main_document_inferred' for event in data['editorial_history'])
 PY
+curl -fsS -H 'Authorization: Bearer core-test-token' -H 'Content-Type: application/json' \
+  -d '{"document_main":"versao-2.md","previous_path":"manuscrito.md"}' \
+  "http://127.0.0.1:$PORT/api/v1/repos/editorial-text-rel/editorial/repair-lineage" > "$TMP/repair-lineage.json"
+grep -q '"ok":true' "$TMP/repair-lineage.json"
+git --git-dir="$TMP/repos/editorial-text-rel.git" show HEAD:.sister-editorial.json | grep -q '"document_main":"versao-2.md"'
+git --git-dir="$TMP/repos/editorial-text-rel.git" show HEAD:.sister-editorial.json | grep -q '"recovered":true'
+curl -fsS -H 'Authorization: Bearer core-test-token' \
+  "http://127.0.0.1:$PORT/api/v1/repos/editorial-text-rel/archive?ref=HEAD&format=zip&scope=current" > "$TMP/text-current.zip"
+python3 - "$TMP/text-current.zip" <<'PY'
+import sys, zipfile
+names = zipfile.ZipFile(sys.argv[1]).namelist()
+assert any(name.endswith('/versao-2.md') for name in names), names
+assert not any(name.endswith('/manuscrito.md') for name in names), names
+PY
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 401 ]]
 
@@ -494,6 +508,17 @@ for SAMPLE in amostra.odt amostra.pdf amostra.png amostra.bin; do
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/blob-$SAMPLE" | cut -d' ' -f1)" ]]
   [[ "$ORIGINAL_SHA" == "$(sha256sum "$TMP/download-$SAMPLE" | cut -d' ' -f1)" ]]
 done
+
+curl -fsS -H "Authorization: Bearer test-token-123" \
+  "http://127.0.0.1:$PORT_AUTH/api/v1/repos/artigo-teste/archive?ref=HEAD&format=zip&scope=current" > "$TMP/manuscrito-atual.zip"
+python3 - "$TMP/manuscrito-atual.zip" <<'PY'
+import sys, zipfile
+names = zipfile.ZipFile(sys.argv[1]).namelist()
+assert any(name.endswith('/artigo-completo.docx') for name in names), names
+assert any(name.endswith('/amostra.odt') for name in names), names
+assert any(name.endswith('/.sister-editorial.json') for name in names), names
+assert not any(name.endswith('/manuscrito.md') for name in names), names
+PY
 
 # A comparação editorial reconstrói todos os commits, sem confundir anexos com revisões do principal.
 curl -fsS -H "Authorization: Bearer test-token-123" \

@@ -1049,7 +1049,7 @@ window.hydratePdfDiffs = async function() {
   });
 };
 
-async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, mainDoc }) {
+async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, mainDoc, canWrite = false }) {
   const [commitsData, refsData] = await Promise.all([
     api(`/api/v1/repos/${encodeURIComponent(repo)}/commits?ref=HEAD`).catch(() => ({ commits: [] })),
     api(`/api/v1/repos/${encodeURIComponent(repo)}/refs`).catch(() => ({ branches: [], tags: [] }))
@@ -1251,6 +1251,17 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
     `;
   }
 
+  const recoveredLineage = logicalDocuments.find(doc => doc.logical && doc.base_path && doc.head_path && doc.base_path !== doc.head_path);
+  if (isEditorial && recoveredLineage && mainDoc !== recoveredLineage.head_path) {
+    html += `
+      <div class="notice-box" style="margin-bottom:18px; border-color:#f59e0b; background:#fffbeb;">
+        <strong>⚠ Linhagem recuperada ainda não consolidada no manifesto</strong>
+        <p>O histórico identifica <code>${esc(recoveredLineage.base_path)}</code> → <code>${esc(recoveredLineage.head_path)}</code>, mas o manifesto ainda aponta para <code>${esc(mainDoc || 'nenhum')}</code>.</p>
+        ${canWrite ? `<button type="button" class="btn-primary" onclick="repairEditorialLineage('${esc(repo)}','${esc(recoveredLineage.base_path)}','${esc(recoveredLineage.head_path)}')">Consolidar linhagem no manifesto</button>` : ''}
+      </div>
+    `;
+  }
+
 
   if (docFiles.length) {
     html += `
@@ -1268,6 +1279,10 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
             </a>
           `).join('')}
         </div>
+        ${isEditorial ? `<div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+          <a class="btn-primary" style="font-size:.74rem; padding:5px 9px; text-decoration:none;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(effectiveHead)}&format=zip&scope=current" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-manuscrito-atual.zip')">⬇ Exportar manuscrito atual</a>
+          <a class="btn-cancel" style="font-size:.74rem; padding:5px 9px; text-decoration:none; background:#fff;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(effectiveHead)}&format=zip&scope=complete" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-preservacao-completa.zip')">⬇ Exportar preservação completa</a>
+        </div>` : ''}
       </nav>
     `;
   }
@@ -2084,7 +2099,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
               Objeto Git anotado: <code>${esc(ed.hash.substr(0, 10))}</code>
             </div>
             <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
-              <a class="btn-primary" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ed.name)}&format=zip" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-${esc(ed.name.replaceAll('/', '-'))}.zip')">⬇ Baixar edição ZIP</a>
+              <a class="btn-primary" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ed.name)}&format=zip&scope=current" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-${esc(ed.name.replaceAll('/', '-'))}-manuscrito-atual.zip')">⬇ Manuscrito atual</a>
+              <a class="btn-cancel" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="/api/v1/repos/${encodeURIComponent(repo)}/archive?ref=${encodeURIComponent(ed.name)}&format=zip&scope=complete" onclick="event.preventDefault(); downloadFile(this.href, '${esc(repo)}-${esc(ed.name.replaceAll('/', '-'))}-preservacao-completa.zip')">⬇ Preservação completa</a>
               <a class="btn-cancel" style="font-size:0.76rem; padding:5px 10px; text-decoration:none;" href="#/editorial/${encodeURIComponent(repo)}/diff?base=${encodeURIComponent(ed.name)}&head=HEAD&view=editorial">Comparar com atual</a>
             </div>
           </div>
@@ -2105,7 +2121,8 @@ async function renderEditorialDoc(repo, tab = 'manuscript', options = {}) {
       head: options.head,
       viewMode: options.view,
       isEditorial: true,
-      mainDoc
+      mainDoc,
+      canWrite
     });
   }
 
@@ -2419,6 +2436,22 @@ window.migrateEditorialManifest = async function(repo) {
     await render();
   } catch (err) {
     alert('Erro ao migrar manifesto: ' + err.message);
+  }
+};
+
+window.repairEditorialLineage = async function(repo, previousPath, documentMain) {
+  if (!confirm(`Consolidar "${documentMain}" como manuscrito principal e preservar "${previousPath}" como versão histórica?`)) return;
+  try {
+    const result = await apiPost(`/api/v1/repos/${encodeURIComponent(repo)}/editorial/repair-lineage`, {
+      document_main: documentMain,
+      previous_path: previousPath,
+      expected_head: (window.sisterEditorialHeads || {})[repo] || ''
+    });
+    if (result.commit) window.sisterEditorialHeads[repo] = result.commit;
+    showToast('✓ Linhagem consolidada no manifesto com commit auditável.');
+    await render();
+  } catch (err) {
+    alert('Erro ao consolidar linhagem: ' + err.message);
   }
 };
 
