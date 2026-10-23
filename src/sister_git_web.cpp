@@ -3,6 +3,7 @@
 #include <netinet/in.h>
 #include <sqlite3.h>
 #include <sys/socket.h>
+#include <sys/random.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -20,7 +21,6 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
-#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -588,7 +588,8 @@ static void init_auth_db() {
       email TEXT PRIMARY KEY,
       code TEXT,
       expires_at INTEGER,
-      attempts INTEGER DEFAULT 0
+      attempts INTEGER DEFAULT 0,
+      requested_at INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
@@ -628,6 +629,8 @@ static void init_auth_db() {
     std::cerr << "[AUTH DDL ERROR] " << err << "\n";
     sqlite3_free(err);
   }
+  // Compatible migration for databases created before request throttling.
+  sqlite3_exec(g_db, "ALTER TABLE otps ADD COLUMN requested_at INTEGER DEFAULT 0;", nullptr, nullptr, nullptr);
   sqlite3_exec(g_db, "DELETE FROM sessions WHERE expires_at <= unixepoch(); DELETE FROM otps WHERE expires_at <= unixepoch();", nullptr, nullptr, nullptr);
   sqlite3_exec(g_db, "INSERT OR IGNORE INTO allowed_users (email, name, role, created_by, created_at) SELECT email, name, role, 'migration', created_at FROM users;", nullptr, nullptr, nullptr);
 }
@@ -641,6 +644,18 @@ static bool has_allowed_users() {
     sqlite3_finalize(stmt);
   }
   return count > 0;
+}
+
+static bool valid_email(const std::string &email) {
+  if (email.empty() || email.size() > 254 || email.front() == '.' || email.back() == '.') return false;
+  size_t at = email.find('@');
+  if (at == std::string::npos || at == 0 || at + 3 > email.size() ||
+      email.find('@', at + 1) != std::string::npos || email.find('.', at + 2) == std::string::npos) return false;
+  for (unsigned char c : email) {
+    if (std::isalnum(c) || c == '.' || c == '_' || c == '-' || c == '+' || c == '@') continue;
+    return false;
+  }
+  return true;
 }
 
 static bool is_user_allowed(const std::string &email, std::string &out_name, std::string &out_role) {
@@ -662,25 +677,54 @@ static bool is_user_allowed(const std::string &email, std::string &out_name, std
   return ok;
 }
 
-static std::string random_hex(size_t bytes = 16) {
-  std::random_device rd;
-  std::mt19937_64 gen(rd());
-  std::uniform_int_distribution<uint64_t> dis;
-  std::ostringstream ss;
-  while (ss.str().size() < bytes * 2) {
-    uint64_t val = dis(gen);
-    ss << std::hex << std::setfill('0') << std::setw(16) << val;
+static bool secure_random(unsigned char *out, size_t size) {
+  size_t done = 0;
+  while (done < size) {
+    ssize_t n = getrandom(out + done, size - done, 0);
+    if (n > 0) { done += static_cast<size_t>(n); continue; }
+    if (n < 0 && errno == EINTR) continue;
+    return false;
   }
-  return ss.str().substr(0, bytes * 2);
+  return true;
+}
+
+static std::string random_hex(size_t bytes = 16) {
+  std::vector<unsigned char> data(bytes);
+  if (!secure_random(data.data(), data.size())) return "";
+  static constexpr char hex[] = "0123456789abcdef";
+  std::string out(bytes * 2, '0');
+  for (size_t i = 0; i < bytes; ++i) {
+    out[i * 2] = hex[data[i] >> 4];
+    out[i * 2 + 1] = hex[data[i] & 15];
+  }
+  return out;
 }
 
 static std::string random_digits(size_t count = 6) {
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_int_distribution<int> dis(0, 9);
+  std::vector<unsigned char> data(count);
+  if (!secure_random(data.data(), data.size())) return "";
   std::string out;
-  for (size_t i = 0; i < count; i++) out += std::to_string(dis(gen));
+  size_t used = 0;
+  while (out.size() < count) {
+    if (used == data.size()) {
+      if (!secure_random(data.data(), data.size())) return "";
+      used = 0;
+    }
+    unsigned char value = data[used++];
+    if (value < 250) out += static_cast<char>('0' + (value % 10));
+  }
   return out;
+}
+
+static bool constant_time_equal(const std::string &a, const std::string &b) {
+  size_t max_len = std::max(a.size(), b.size());
+  unsigned char diff = static_cast<unsigned char>(a.size() ^ b.size());
+  for (size_t i = 0; i < max_len; ++i) {
+    unsigned char av = i < a.size() ? static_cast<unsigned char>(a[i]) : 0;
+    unsigned char bv = i < b.size() ? static_cast<unsigned char>(b[i]) : 0;
+    diff |= av ^ bv;
+  }
+  return diff == 0;
 }
 
 static bool send_otp_email(const std::string &to, const std::string &code, std::string &err_out) {
@@ -690,7 +734,9 @@ static bool send_otp_email(const std::string &to, const std::string &code, std::
     return false;
   }
 
-  std::string temp_file = "/tmp/sister-mail-" + random_hex(6) + ".eml";
+  std::string mail_nonce = random_hex(6);
+  if (mail_nonce.empty()) { err_out = "Fonte segura de aleatoriedade indisponível"; return false; }
+  std::string temp_file = "/tmp/sister-mail-" + mail_nonce + ".eml";
   {
     std::ofstream ofs(temp_file);
     if (!ofs) { err_out = "Erro ao criar arquivo temporário de e-mail"; return false; }
@@ -714,7 +760,7 @@ static bool send_otp_email(const std::string &to, const std::string &code, std::
 
   std::ostringstream cmd;
   cmd << "curl --silent --show-error --connect-timeout 15 --max-time 30"
-      << " --url 'smtp://" << g_smtp.host << ":" << g_smtp.port << "'"
+      << " --url " << shell_quote("smtp://" + g_smtp.host + ":" + std::to_string(g_smtp.port))
       << " --mail-from " << shell_quote(g_smtp.from.empty() ? g_smtp.user : g_smtp.from)
       << " --mail-rcpt " << shell_quote(to)
       << " --upload-file " << shell_quote(temp_file);
@@ -756,24 +802,6 @@ static std::string request_token(const std::string &headers) {
     if (end == std::string::npos) end = headers.size();
     token = headers.substr(start, end - start);
     while (!token.empty() && token.back() == ' ') token.pop_back();
-  }
-
-  // Fallback 1: Cookie (ex.: sister_token=...)
-  if (token.empty()) {
-    size_t cpos = headers.find("Cookie: ");
-    if (cpos == std::string::npos) cpos = headers.find("cookie: ");
-    if (cpos != std::string::npos) {
-      std::string cstr = headers.substr(cpos + 8);
-      size_t cend = cstr.find_first_of("\r\n");
-      if (cend != std::string::npos) cstr = cstr.substr(0, cend);
-      size_t tpos = cstr.find("sister_token=");
-      if (tpos != std::string::npos) {
-        size_t vstart = tpos + 13;
-        size_t vend = cstr.find(';', vstart);
-        token = cstr.substr(vstart, (vend == std::string::npos ? cstr.size() : vend) - vstart);
-        while (!token.empty() && token.back() == ' ') token.pop_back();
-      }
-    }
   }
 
   return token;
@@ -1351,7 +1379,7 @@ static Response route_post(const std::string &target, const std::string &headers
     while (!email.empty() && (email.back() == ' ' || email.back() == '\t')) email.pop_back();
     std::transform(email.begin(), email.end(), email.begin(), [](unsigned char c) { return std::tolower(c); });
 
-    if (email.empty() || email.find('@') == std::string::npos || email.find('.') == std::string::npos) {
+    if (!valid_email(email)) {
       return error(400, "Endereço de e-mail institucional inválido");
     }
 
@@ -1360,17 +1388,28 @@ static Response route_post(const std::string &target, const std::string &headers
       return error(403, "E-mail institucional não cadastrado no SisTer Git. Solicite a liberação de acesso ao administrador do laboratório.");
     }
 
+    sqlite3_stmt *rate_stmt = nullptr;
+    if (g_db && sqlite3_prepare_v2(g_db, "SELECT requested_at FROM otps WHERE email = ?", -1, &rate_stmt, nullptr) == SQLITE_OK) {
+      sqlite3_bind_text(rate_stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
+      bool limited = sqlite3_step(rate_stmt) == SQLITE_ROW &&
+                     std::time(nullptr) - sqlite3_column_int64(rate_stmt, 0) < 60;
+      sqlite3_finalize(rate_stmt);
+      if (limited) return error(429, "Aguarde 60 segundos antes de solicitar outro código");
+    }
+
     std::string code = random_digits(6);
+    if (code.size() != 6) return error(500, "Fonte segura de aleatoriedade indisponível");
     int64_t expires = std::time(nullptr) + 600; // 10 min
 
     if (g_db) {
       sqlite3_stmt *stmt = nullptr;
-      const char *sql = "INSERT INTO otps(email, code, expires_at, attempts) VALUES(?, ?, ?, 0) "
-                        "ON CONFLICT(email) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at, attempts = 0";
+      const char *sql = "INSERT INTO otps(email, code, expires_at, attempts, requested_at) VALUES(?, ?, ?, 0, ?) "
+                        "ON CONFLICT(email) DO UPDATE SET code = excluded.code, expires_at = excluded.expires_at, attempts = 0, requested_at = excluded.requested_at";
       if (sqlite3_prepare_v2(g_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 2, code.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int64(stmt, 3, expires);
+        sqlite3_bind_int64(stmt, 4, std::time(nullptr));
         sqlite3_step(stmt);
         sqlite3_finalize(stmt);
       }
@@ -1393,7 +1432,8 @@ static Response route_post(const std::string &target, const std::string &headers
     while (!code.empty() && (code.front() == ' ' || code.front() == '\t')) code.erase(code.begin());
     while (!code.empty() && (code.back() == ' ' || code.back() == '\t')) code.pop_back();
 
-    if (email.empty() || code.empty()) return error(400, "E-mail e código de verificação são obrigatórios");
+    if (!valid_email(email) || code.size() != 6 || !std::all_of(code.begin(), code.end(), [](unsigned char c) { return std::isdigit(c); }))
+      return error(400, "E-mail e código de verificação válidos são obrigatórios");
 
     bool code_ok = false;
     if (g_smtp.dev_mode && code == "123456") code_ok = true;
@@ -1407,7 +1447,7 @@ static Response route_post(const std::string &target, const std::string &headers
           std::string real_code = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
           int64_t exp = sqlite3_column_int64(stmt, 1);
           int attempts = sqlite3_column_int(stmt, 2);
-          if (attempts < 5 && exp >= std::time(nullptr) && real_code == code) {
+          if (attempts < 5 && exp >= std::time(nullptr) && constant_time_equal(real_code, code)) {
             code_ok = true;
           }
         }
@@ -1416,11 +1456,20 @@ static Response route_post(const std::string &target, const std::string &headers
     }
 
     if (!code_ok) {
+      if (g_db) {
+        sqlite3_stmt *stmt = nullptr;
+        if (sqlite3_prepare_v2(g_db, "UPDATE otps SET attempts = attempts + 1 WHERE email = ?", -1, &stmt, nullptr) == SQLITE_OK) {
+          sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
+          sqlite3_step(stmt);
+          sqlite3_finalize(stmt);
+        }
+      }
       return error(401, "Código de verificação incorreto ou expirado. Tente solicitar novo código.");
     }
 
     // Success: Issue session token
     std::string token = random_hex(24);
+    if (token.size() != 48) return error(500, "Fonte segura de aleatoriedade indisponível");
     int64_t exp_session = std::time(nullptr) + (30 * 86400); // 30 days
     std::string name = email.substr(0, email.find('@'));
     std::replace(name.begin(), name.end(), '.', ' ');
@@ -1480,7 +1529,12 @@ static Response route_post(const std::string &target, const std::string &headers
       }
 
       // Consume OTP
-      sqlite3_exec(g_db, ("DELETE FROM otps WHERE email = " + shell_quote(email)).c_str(), nullptr, nullptr, nullptr);
+      sqlite3_stmt *consume = nullptr;
+      if (sqlite3_prepare_v2(g_db, "DELETE FROM otps WHERE email = ?", -1, &consume, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(consume, 1, email.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(consume);
+        sqlite3_finalize(consume);
+      }
     }
 
     return {200, "application/json; charset=utf-8", "{\"ok\":true,\"status\":\"ok\",\"token\":" + json(token) + ",\"user\":{\"email\":" + json(email) + ",\"name\":" + json(name) + ",\"role\":" + json(role) + "}}"};
@@ -1512,8 +1566,9 @@ static Response route_post(const std::string &target, const std::string &headers
     while (!email.empty() && (email.front() == ' ' || email.front() == '\t')) email.erase(email.begin());
     while (!email.empty() && (email.back() == ' ' || email.back() == '\t')) email.pop_back();
 
-    if (email.empty() || email.find('@') == std::string::npos) return error(400, "E-mail inválido");
+    if (!valid_email(email)) return error(400, "E-mail inválido");
     if (name.empty()) return error(400, "Nome é obrigatório");
+    if (role != "admin" && role != "researcher" && role != "user") return error(400, "Papel inválido");
 
     if (g_db) {
       sqlite3_stmt *stmt = nullptr;
@@ -1995,6 +2050,8 @@ static std::string reason(int s) {
   if (s == 404) return "Not Found";
   if (s == 405) return "Method Not Allowed";
   if (s == 409) return "Conflict";
+  if (s == 413) return "Payload Too Large";
+  if (s == 429) return "Too Many Requests";
   return "Internal Server Error";
 }
 
@@ -2016,6 +2073,8 @@ static void client(int fd) {
   std::string method, target, version;
   in >> method >> target >> version;
 
+  bool malformed_request = method.empty() || target.empty() || version != "HTTP/1.1";
+  bool payload_too_large = false;
   if (method == "POST") {
     size_t cl_pos = header_part.find("Content-Length: ");
     if (cl_pos == std::string::npos) cl_pos = header_part.find("content-length: ");
@@ -2023,19 +2082,30 @@ static void client(int fd) {
       size_t line_end = header_part.find("\r\n", cl_pos);
       std::string len_str = header_part.substr(cl_pos + 16, line_end - (cl_pos + 16));
       try {
-        size_t content_length = std::stoul(len_str);
-        while (body.size() < content_length && body.size() < max_upload) {
+        size_t parsed = 0;
+        unsigned long long raw_length = std::stoull(len_str, &parsed);
+        if (parsed != len_str.size() || raw_length > max_upload) payload_too_large = true;
+        size_t content_length = payload_too_large ? 0 : static_cast<size_t>(raw_length);
+        while (!payload_too_large && body.size() < content_length) {
           ssize_t n = read(fd, b, sizeof(b));
           if (n <= 0) break;
           body.append(b, n);
         }
-      } catch (...) {}
+        if (!payload_too_large && body.size() != content_length) malformed_request = true;
+        if (!payload_too_large && body.size() > content_length) body.resize(content_length);
+      } catch (...) { malformed_request = true; }
+    } else if (!body.empty()) {
+      malformed_request = true;
     }
   }
 
   AuthUser user = authenticate_request(header_part, target);
   Response r;
-  if (method == "GET" || method == "HEAD") {
+  if (payload_too_large) {
+    r = error(413, "Corpo da requisição excede limite permitido");
+  } else if (malformed_request) {
+    r = error(400, "Requisição HTTP inválida ou incompleta");
+  } else if (method == "GET" || method == "HEAD") {
     r = route(target, user);
   } else if (method == "POST") {
     r = route_post(target, header_part, body, user);
@@ -2050,7 +2120,8 @@ static void client(int fd) {
     h += eh + "\r\n";
   }
   h += "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
-       "Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' blob:; frame-src 'self' blob:; object-src 'self' blob:;\r\n"
+       "X-Frame-Options: SAMEORIGIN\r\nReferrer-Policy: no-referrer\r\nPermissions-Policy: camera=(), microphone=(), geolocation=()\r\n"
+       "Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' blob:; frame-src 'self' blob:; object-src 'self' blob:;\r\n"
        "Connection: close\r\n\r\n";
 
   auto write_all = [](int sfd, const char *buf, size_t len) -> bool {

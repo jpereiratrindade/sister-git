@@ -10,6 +10,7 @@ build/sister-git-web: src/sister_git_web.cpp
 	$(CXX) $(CXXFLAGS) $< -o $@ -lsqlite3
 
 test: all
+	bash tests/test_security.sh
 	bash tests/test_web.sh
 
 test-e2e: all
@@ -17,8 +18,9 @@ test-e2e: all
 
 deploy-srv: build/sister-git-web
 	scp build/sister-git-web jpereiratrindade@10.163.80.129:~/bin/sister-git-web.new
-	ssh jpereiratrindade@10.163.80.129 'chmod +x ~/bin/sister-git-web.new && mv ~/bin/sister-git-web.new ~/bin/sister-git-web'
+	ssh -t jpereiratrindade@10.163.80.129 'sudo install -o root -g root -m 0755 ~/bin/sister-git-web.new /usr/local/bin/sister-git-web && rm ~/bin/sister-git-web.new && sudo systemctl restart sister-git-web.service'
 	scp web/* jpereiratrindade@10.163.80.129:/usr/local/share/sister-git/web/
+	ssh jpereiratrindade@10.163.80.129 'systemctl is-active --quiet sister-git-web.service && curl -fsS http://127.0.0.1:8787/api/v1/health'
 
 clean:
 	rm -rf build

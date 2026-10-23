@@ -17,10 +17,8 @@ const getToken = () => localStorage.getItem('sister_token') || '';
 const setToken = t => {
   if (t) {
     localStorage.setItem('sister_token', t.trim());
-    document.cookie = `sister_token=${encodeURIComponent(t.trim())}; path=/; SameSite=Lax; max-age=2592000`;
   } else {
     localStorage.removeItem('sister_token');
-    document.cookie = 'sister_token=; path=/; max-age=0';
   }
 };
 
@@ -3287,10 +3285,6 @@ window.handleSearch = function(q) {
 
 window.addEventListener('hashchange', render);
 window.addEventListener('DOMContentLoaded', () => {
-  const t = getToken();
-  if (t && !document.cookie.includes('sister_token=')) {
-    document.cookie = `sister_token=${encodeURIComponent(t)}; path=/; SameSite=Lax; max-age=2592000`;
-  }
   updateAuthStatus();
   render();
 });
