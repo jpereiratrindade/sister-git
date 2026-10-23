@@ -628,6 +628,7 @@ static void init_auth_db() {
     sqlite3_free(err);
   }
   sqlite3_exec(g_db, "DELETE FROM sessions WHERE expires_at <= unixepoch(); DELETE FROM otps WHERE expires_at <= unixepoch();", nullptr, nullptr, nullptr);
+  sqlite3_exec(g_db, "INSERT OR IGNORE INTO allowed_users (email, name, role, created_by, created_at) SELECT email, name, role, 'migration', created_at FROM users;", nullptr, nullptr, nullptr);
 }
 
 static bool has_allowed_users() {
