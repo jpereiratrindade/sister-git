@@ -981,11 +981,11 @@ function renderUnifiedDiff(lines) {
 }
 
 function renderPdfDiff(repo, file, base, head) {
-  const side = (label, revision, blob, sideClass) => {
+  const side = (label, revision, path, blob, sideClass) => {
     if (!blob?.exists) {
       return `<div class="pdf-diff-side ${sideClass}"><div class="pdf-diff-side-head"><strong>${label}</strong><span>Arquivo ausente</span></div><div class="pdf-diff-empty">PDF não existe nesta versão.</div></div>`;
     }
-    const rawUrl = `/api/v1/repos/${encodeURIComponent(repo)}/raw?ref=${encodeURIComponent(revision)}&path=${encodeURIComponent(file.path)}`;
+    const rawUrl = `/api/v1/repos/${encodeURIComponent(repo)}/raw?ref=${encodeURIComponent(revision)}&path=${encodeURIComponent(path)}`;
     return `
       <div class="pdf-diff-side ${sideClass}">
         <div class="pdf-diff-side-head">
@@ -993,9 +993,12 @@ function renderPdfDiff(repo, file, base, head) {
           <span>${fmt(blob.size)} · <code>${esc((blob.oid || '').slice(0, 12))}</code></span>
         </div>
         <div class="pdf-diff-loading">⏳ Carregando PDF...</div>
-        <iframe class="pdf-diff-frame" data-src="${esc(rawUrl)}" title="${esc(label)} de ${esc(file.path)}"></iframe>
+        <iframe class="pdf-diff-frame" data-src="${esc(rawUrl)}" title="${esc(label)} de ${esc(path)}"></iframe>
       </div>`;
   };
+  const relationLabel = file.logical
+    ? (file.change === 'added' ? 'Primeira versão do documento' : `Revisão lógica: ${file.base_path} → ${file.head_path}`)
+    : 'Comparação do mesmo arquivo';
   const automated = file.text_diff_status === 'ok'
     ? `<div class="pdf-text-diff">
          <div class="pdf-text-diff-head"><strong>Diff textual automatizado</strong><span class="editorial-diff-stat-add">+${file.text_additions || 0}</span><span class="editorial-diff-stat-del">-${file.text_deletions || 0}</span></div>
@@ -1008,15 +1011,15 @@ function renderPdfDiff(repo, file, base, head) {
   return `
     <section class="pdf-diff-card">
       <div class="pdf-diff-header">
-        <div><strong>📕 ${esc(file.path)}</strong><span>Comparação visual de PDF</span></div>
+        <div><strong>📕 ${esc(file.path)}</strong><span>${esc(relationLabel)}</span></div>
         <span class="pdf-diff-binary-badge">Binário rastreado pelo Git</span>
       </div>
       ${automated}
       <details class="pdf-visual-details">
         <summary>Comparação visual complementar</summary>
       <div class="pdf-diff-grid">
-        ${side('Base', base, file.base_blob, 'is-base')}
-        ${side('Alvo', head, file.head_blob, 'is-head')}
+        ${side('Base', base, file.base_path || file.path, file.base_blob, 'is-base')}
+        ${side('Alvo', head, file.head_path || file.path, file.head_blob, 'is-head')}
       </div>
       </details>
     </section>`;
@@ -1058,17 +1061,20 @@ async function buildCompareViewHtml({ repo, base, head, viewMode, isEditorial, m
   let effectiveHead = head || 'HEAD';
 
   if (!effectiveBase) {
-    if (isEditorial && rootCommit && commits.length > 1) {
-      effectiveBase = rootCommit.short_hash;
-    } else {
-      effectiveBase = 'HEAD~1';
-    }
+    effectiveBase = commits.length > 1 ? 'HEAD~1' : (rootCommit?.short_hash || 'HEAD');
   }
 
   const effectiveView = viewMode || (isEditorial ? 'editorial' : 'unified');
 
   const diffData = await api(`/api/v1/repos/${encodeURIComponent(repo)}/compare?base=${encodeURIComponent(effectiveBase)}&head=${encodeURIComponent(effectiveHead)}`).catch(() => ({ files: [] }));
-  const files = diffData.files || [];
+  let files = diffData.files || [];
+  const logicalDocument = diffData.document_relation;
+  if (logicalDocument) {
+    if (logicalDocument.change === 'revised') {
+      files = files.filter(f => f.path !== logicalDocument.base_path && f.path !== logicalDocument.head_path);
+    }
+    files.unshift(logicalDocument);
+  }
 
   const docFiles = files.filter(f => !isMetaFile(f.path));
   const metaFiles = files.filter(f => isMetaFile(f.path));

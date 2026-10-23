@@ -1168,6 +1168,57 @@ static Result unified_text_diff(const std::string &base_text, const std::string 
   return result;
 }
 
+static std::string pdf_document_relation(const std::string &name, const std::string &base_ref,
+                                         const std::string &base_path, const std::string &head_ref,
+                                         const std::string &head_path) {
+  auto meta = [&](const std::string &revision, const std::string &path) {
+    if (path.empty()) return std::string("{\"exists\":false,\"oid\":null,\"size\":0}");
+    auto oid = run({"git", "--git-dir=" + git_dir(name), "rev-parse", "--verify", revision + ":" + path});
+    if (oid.status != 0) return std::string("{\"exists\":false,\"oid\":null,\"size\":0}");
+    while (!oid.out.empty() && std::isspace(static_cast<unsigned char>(oid.out.back()))) oid.out.pop_back();
+    auto size = run({"git", "--git-dir=" + git_dir(name), "cat-file", "-s", oid.out});
+    while (!size.out.empty() && std::isspace(static_cast<unsigned char>(size.out.back()))) size.out.pop_back();
+    return std::string("{\"exists\":true,\"oid\":") + json(oid.out) + ",\"size\":" +
+           (size.status == 0 && !size.out.empty() ? size.out : "0") + "}";
+  };
+  auto base_text = base_path.empty() ? Result{2, "Documento principal ausente"} : pdf_text_at_revision(name, base_ref, base_path);
+  auto head_text = head_path.empty() ? Result{2, "Documento principal ausente"} : pdf_text_at_revision(name, head_ref, head_path);
+  std::string status, error, line_json = "[";
+  size_t additions = 0, deletions = 0;
+  bool first = true;
+  if ((base_text.status == 0 || base_text.status == 2) && (head_text.status == 0 || head_text.status == 2)) {
+    auto delta = unified_text_diff(base_text.status == 0 ? base_text.out : "", head_text.status == 0 ? head_text.out : "");
+    if (delta.status == 0) {
+      status = "ok";
+      for (const auto &line : lines(delta.out)) {
+        std::string type, text;
+        if (line.rfind("--- ", 0) == 0 || line.rfind("+++ ", 0) == 0) continue;
+        if (line.rfind("@@", 0) == 0) { type = "hunk"; text = line; }
+        else if (!line.empty() && line[0] == '+') { type = "add"; text = line.substr(1); ++additions; }
+        else if (!line.empty() && line[0] == '-') { type = "del"; text = line.substr(1); ++deletions; }
+        else if (!line.empty() && line[0] == ' ') { type = "ctx"; text = line.substr(1); }
+        else continue;
+        if (!first) line_json += ',';
+        first = false;
+        line_json += "{\"type\":" + json(type) + ",\"text\":" + json(text) + "}";
+      }
+    } else { status = "error"; error = delta.out; }
+  } else {
+    int failed = base_text.status != 0 && base_text.status != 2 ? base_text.status : head_text.status;
+    status = failed == 127 ? "unavailable" : (failed == 4 ? "no_text" : "error");
+    error = base_text.status != 0 && base_text.status != 2 ? base_text.out : head_text.out;
+  }
+  line_json += ']';
+  std::string change = base_path.empty() ? "added" : (head_path.empty() ? "deleted" : "revised");
+  return "{\"kind\":\"pdf\",\"logical\":true,\"change\":" + json(change) +
+         ",\"path\":" + json(head_path.empty() ? base_path : head_path) +
+         ",\"base_path\":" + json(base_path) + ",\"head_path\":" + json(head_path) +
+         ",\"base_blob\":" + meta(base_ref, base_path) + ",\"head_blob\":" + meta(head_ref, head_path) +
+         ",\"text_diff_status\":" + json(status) + ",\"text_diff_error\":" + json(error) +
+         ",\"text_additions\":" + std::to_string(additions) + ",\"text_deletions\":" + std::to_string(deletions) +
+         ",\"text_lines\":" + line_json + "}";
+}
+
 static Response compare(const std::string &name, const std::map<std::string, std::string> &q) {
   std::string base = q.count("base") ? q.at("base") : "", head = q.count("head") ? q.at("head") : "";
   if (!valid_revision(base) || !valid_revision(head)) return error(400, "Revisões inválidas");
@@ -1266,7 +1317,21 @@ static Response compare(const std::string &name, const std::map<std::string, std
     else if (!l.empty() && l[0] == ' ') cur_lines.push_back({"ctx", l.substr(1)});
   }
   flush_file();
-  return {200, "application/json; charset=utf-8", b + "]}"};
+  std::string relation = "null";
+  if (repo_type(name) == "editorial") {
+    auto base_manifest = run({"git", "--git-dir=" + git_dir(name), "show", base + ":.sister-editorial.json"});
+    auto head_manifest = run({"git", "--git-dir=" + git_dir(name), "show", head + ":.sister-editorial.json"});
+    std::string base_main = base_manifest.status == 0 ? json_extract(base_manifest.out, "document_main") : "";
+    std::string head_main = head_manifest.status == 0 ? json_extract(head_manifest.out, "document_main") : "";
+    auto is_pdf_path = [](std::string path) {
+      std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c) { return std::tolower(c); });
+      return path.size() >= 4 && path.substr(path.size() - 4) == ".pdf";
+    };
+    if (base_main != head_main && (is_pdf_path(base_main) || is_pdf_path(head_main))) {
+      relation = pdf_document_relation(name, base, base_main, head, head_main);
+    }
+  }
+  return {200, "application/json; charset=utf-8", b + "],\"document_relation\":" + relation + "}"};
 }
 
 static Response editorial(const std::string &name, const AuthUser &user) {
