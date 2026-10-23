@@ -48,6 +48,8 @@ git init -q --bare --initial-branch=main "$TMP/repos/editorial-text-rel.git"
 git -C "$TMP/text-relation-work" init -q -b main
 git -C "$TMP/text-relation-work" config user.name 'LABECO Teste'
 git -C "$TMP/text-relation-work" config user.email 'teste@example.invalid'
+printf '# Projeto editorial\n' > "$TMP/text-relation-work/README.md"
+git -C "$TMP/text-relation-work" add . && git -C "$TMP/text-relation-work" commit -qm 'inicia repositório vazio'
 printf '{"schema_version":1,"project_type":"editorial","document_main":"manuscrito.md","current_stage":"draft"}\n' > "$TMP/text-relation-work/.sister-editorial.json"
 printf '# Manuscrito\n\nVersão extensa original.\n' > "$TMP/text-relation-work/manuscrito.md"
 git -C "$TMP/text-relation-work" add . && git -C "$TMP/text-relation-work" commit -qm 'versão original'
@@ -105,7 +107,7 @@ assert relations[1]['change'] == 'revised'
 assert relations[1]['base_path'] == 'documento-R1.pdf'
 assert relations[1]['head_path'] == 'documento-R2.pdf'
 PY
-curl -fsS -H 'Authorization: Bearer core-test-token' "http://127.0.0.1:$PORT/api/v1/repos/editorial-text-rel/compare?base=HEAD~1&head=HEAD" > "$TMP/text-relation.json"
+curl -fsS -H 'Authorization: Bearer core-test-token' "http://127.0.0.1:$PORT/api/v1/repos/editorial-text-rel/compare?base=HEAD~2&head=HEAD" > "$TMP/text-relation.json"
 python3 - "$TMP/text-relation.json" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1], encoding='utf-8'))
@@ -114,7 +116,7 @@ relation = data['document_relations'][0]
 assert relation['logical'] is True and relation['kind'] == 'text', relation
 assert relation['base_path'] == 'manuscrito.md', relation
 assert relation['head_path'] == 'versao-2.md', relation
-assert data['editorial_history'][0]['event'] == 'main_document_inferred'
+assert any(event['event'] == 'main_document_inferred' for event in data['editorial_history'])
 PY
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "http://127.0.0.1:$PORT/api/v1/repos")" == 405 ]]
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$PORT/api/v1/repos")" == 401 ]]

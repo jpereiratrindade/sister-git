@@ -1556,6 +1556,12 @@ static Response compare(const std::string &name, const std::map<std::string, std
     // interpreted as successive revisions unless explicitly marked otherwise.
     if (!is_pdf_path(base_main)) {
       std::string logical_path = base_main;
+      std::string lineage_base_path = base_main;
+      std::string lineage_base_ref = base;
+      if (!lineage_base_path.empty()) {
+        auto exists = run({"git", "--git-dir=" + git_dir(name), "cat-file", "-e", lineage_base_ref + ":" + lineage_base_path});
+        if (exists.status != 0) { lineage_base_path.clear(); lineage_base_ref.clear(); }
+      }
       auto lineage_commits = run({"git", "--git-dir=" + git_dir(name), "rev-list", "--reverse", "--ancestry-path", base + ".." + head});
       if (lineage_commits.status == 0) {
         for (const auto &commit : lines(lineage_commits.out)) {
@@ -1567,10 +1573,15 @@ static Response compare(const std::string &name, const std::map<std::string, std
           else if (documents.size() == 1 && declared_relation != "supporting_document" && declared_relation != "independent_document") {
             logical_path = documents.front();
           }
+          if (lineage_base_path.empty() && !logical_path.empty()) {
+            auto exists = run({"git", "--git-dir=" + git_dir(name), "cat-file", "-e", commit + ":" + logical_path});
+            if (exists.status == 0) { lineage_base_path = logical_path; lineage_base_ref = commit; }
+          }
         }
       }
-      if (!logical_path.empty() && logical_path != base_main && !is_pdf_path(logical_path)) {
-        std::string text_relation = text_document_relation(name, base, base_main, head, logical_path);
+      if (!logical_path.empty() && !lineage_base_path.empty() && !is_pdf_path(logical_path) &&
+          (logical_path != lineage_base_path || lineage_base_ref != base)) {
+        std::string text_relation = text_document_relation(name, lineage_base_ref, lineage_base_path, head, logical_path);
         if (text_relation != "null") {
           relation = text_relation;
           relations = "[" + text_relation + "]";
