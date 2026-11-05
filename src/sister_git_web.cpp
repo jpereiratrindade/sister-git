@@ -2,6 +2,8 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <sqlite3.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
 #include <sys/socket.h>
 #include <sys/random.h>
 #include <sys/stat.h>
@@ -56,6 +58,7 @@ struct AuthUser {
 
 static std::string repo_root, web_root, auth_token, public_url;
 static std::string bootstrap_admin_email;
+static std::string identity_key_path, identity_endpoint;
 static size_t max_output = 4 * 1024 * 1024;
 static size_t max_upload = 64 * 1024 * 1024;
 static SmtpConfig g_smtp;
@@ -119,6 +122,38 @@ static std::string json(const std::string &s) {
     }
   }
   return out + "\"";
+}
+
+static std::string iso_after(int seconds) {
+  std::time_t value = std::time(nullptr) + seconds;
+  std::tm utc{}; gmtime_r(&value, &utc);
+  std::ostringstream out; out << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ"); return out.str();
+}
+
+static bool valid_nonce(const std::string &value) {
+  return value.size() == 64 && std::all_of(value.begin(), value.end(), [](unsigned char c) {
+    return std::isdigit(c) || (c >= 'a' && c <= 'f');
+  });
+}
+
+static std::string sign_identity(const std::string &nonce) {
+  if (!valid_nonce(nonce) || identity_key_path.empty()) return {};
+  const std::string statement = "{\"endpoint\":" + json(identity_endpoint) +
+    ",\"expires_at\":" + json(iso_after(30)) + ",\"identity\":\"sister-git\",\"issued_at\":" +
+    json(iso_after(0)) + ",\"nonce\":" + json(nonce) + ",\"version\":" + json(SISTER_GIT_VERSION) + "}";
+  FILE *stream = std::fopen(identity_key_path.c_str(), "r");
+  EVP_PKEY *key = stream ? PEM_read_PrivateKey(stream, nullptr, nullptr, nullptr) : nullptr;
+  if (stream) std::fclose(stream);
+  EVP_MD_CTX *context = EVP_MD_CTX_new(); size_t size = 0; std::vector<unsigned char> signature;
+  bool ok = key && EVP_PKEY_id(key) == EVP_PKEY_ED25519 && context &&
+    EVP_DigestSignInit(context, nullptr, nullptr, nullptr, key) == 1 &&
+    EVP_DigestSign(context, nullptr, &size, reinterpret_cast<const unsigned char*>(statement.data()), statement.size()) == 1;
+  if (ok) { signature.resize(size); ok = EVP_DigestSign(context, signature.data(), &size,
+    reinterpret_cast<const unsigned char*>(statement.data()), statement.size()) == 1; }
+  EVP_MD_CTX_free(context); EVP_PKEY_free(key); if (!ok) return {};
+  signature.resize(size); std::string encoded(4 * ((size + 2) / 3), '\0');
+  EVP_EncodeBlock(reinterpret_cast<unsigned char*>(encoded.data()), signature.data(), static_cast<int>(size));
+  return "{\"identity_statement\":" + statement + ",\"signature_base64\":" + json(encoded) + "}";
 }
 
 // Small, dependency-free JSON validator. Editorial manifests are stored inside Git
@@ -1878,6 +1913,12 @@ static Response route(const std::string &target, const AuthUser &user) {
   if (path == "/api/v1/health") {
     return {200, "application/json; charset=utf-8", "{\"status\":\"ok\",\"cxx\":\"c++26\",\"smtp_enabled\":" + std::string(g_smtp.enabled() ? "true" : "false") + "}"};
   }
+  if (path == "/.well-known/sister-identity") {
+    if (!q.contains("nonce") || !valid_nonce(q["nonce"])) return error(400, "Nonce inválido");
+    const auto proof = sign_identity(q["nonce"]);
+    return proof.empty() ? error(503, "Identidade criptográfica indisponível")
+                         : Response{200, "application/json; charset=utf-8", proof};
+  }
 
   if (path == "/api/v1/auth/status") {
     std::string usr = user.authenticated
@@ -2852,6 +2893,8 @@ int main(int argc, char **argv) {
   auth_token = getenv("SISTER_GIT_WEB_TOKEN") ? getenv("SISTER_GIT_WEB_TOKEN") : "";
   public_url = getenv("SISTER_GIT_PUBLIC_URL") ? getenv("SISTER_GIT_PUBLIC_URL") : "http://127.0.0.1:8787";
   while (!public_url.empty() && public_url.back() == '/') public_url.pop_back();
+  identity_key_path = getenv("SISTER_GIT_IDENTITY_KEY_PATH") ? getenv("SISTER_GIT_IDENTITY_KEY_PATH") : "";
+  identity_endpoint = getenv("SISTER_GIT_IDENTITY_ENDPOINT") ? getenv("SISTER_GIT_IDENTITY_ENDPOINT") : public_url + "/";
   bootstrap_admin_email = getenv("SISTER_GIT_ADMIN_EMAIL") ? getenv("SISTER_GIT_ADMIN_EMAIL") : "";
   std::transform(bootstrap_admin_email.begin(), bootstrap_admin_email.end(), bootstrap_admin_email.begin(), [](unsigned char c) { return std::tolower(c); });
 

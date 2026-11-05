@@ -9,7 +9,7 @@ all: build/sister-git-web
 
 build/sister-git-web: src/sister_git_web.cpp
 	mkdir -p build
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@ -lsqlite3
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@ -lsqlite3 -lcrypto
 
 test: all
 	bash tests/test_security.sh
