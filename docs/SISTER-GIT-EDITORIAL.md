@@ -55,6 +55,7 @@ Para que o processo editorial seja imutável e viaje junto com o repositório, c
   "project_type": "editorial",
   "title": "Dinâmica dos Campos Nativos no Bioma Pampa",
   "document_main": "manuscrito.md",
+  "document_history": [],
   "abstract": "Estudo sobre a evolução temporal e conservação da vegetação campestre nativa.",
   "authors": [
     { "name": "José Pedro Trindade", "role": "Autor Principal", "affiliation": "Embrapa / LABECO" }

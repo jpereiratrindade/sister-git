@@ -1,0 +1,31 @@
+name: Evolução rastreável
+description: Propor uma correção, funcionalidade ou mudança operacional
+title: "[Evolução] "
+labels: ["status:proposto"]
+body:
+  - type: textarea
+    id: problema
+    attributes: {label: Problema observável, description: "Descreva o problema, quem é afetado e a evidência disponível."}
+    validations: {required: true}
+  - type: textarea
+    id: resultado
+    attributes: {label: Resultado esperado, description: "Defina o comportamento esperado."}
+    validations: {required: true}
+  - type: textarea
+    id: compatibilidade
+    attributes: {label: Compatibilidade e implantação, description: "Informe impacto em API, MCP, esquema editorial, serviço e clientes."}
+    validations: {required: true}
+  - type: textarea
+    id: aceite
+    attributes: {label: Critérios de aceite, description: "Liste comportamentos verificáveis e testes esperados.", placeholder: "- [ ] ..."}
+    validations: {required: true}
+  - type: dropdown
+    id: ciencia
+    attributes:
+      label: Estado científico inicial
+      options: ["não se aplica", "hipótese", "verificado computacionalmente", "validado empiricamente", "limitado ou refutado"]
+    validations: {required: true}
+  - type: textarea
+    id: evidencias
+    attributes: {label: Evidências e referências, description: "Logs sem segredos, documentos, decisões ou issues relacionadas."}
+

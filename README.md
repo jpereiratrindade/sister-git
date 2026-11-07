@@ -1,6 +1,6 @@
 # SisTer Git — somente repositórios Git
 
-**Versão:** 0.4.0 · **Princípio:** Sempre pronto. Sempre incompleto.
+**Versão:** 0.5.0 · **Princípio:** Sempre pronto. Sempre incompleto.
 
 Um serviço soberano e mínimo de hospedagem de repositórios do ecossistema SisTer: **Git bare + SSH existente + Módulo Editorial C++26**. Não requer Gitea, GitLab, servidores pesados, OAuth externo ou bancos de dados complexos. 
 
